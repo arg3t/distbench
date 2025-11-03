@@ -5,14 +5,14 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 
-Distbench handles the infrastructure concerns (networking, message passing, node lifecycle) so you can focus on algorithm logic.
+Distbench handles the infrastructure concerns (networking, message passing, node lifecycle) so you can focus on algorithm logic. It was built for the lab assignments in TU Delft’s [Distributed Algorithms](https://studyguide.tudelft.nl/courses/study-guide/educations/14765) course in the Computer Science master’s program.
 
 ## ✨ Features
 
 - 🎯 **Clean API** - Procedural macros eliminate boilerplate
 - 🔌 **Pluggable Transports** - In-memory channels or TCP sockets
 - 📦 **Multiple Formats** - JSON or Bincode serialization
-- 🔄 **Two Execution Modes** - Offline (single-process) or Network (distributed)
+- 🔄 **Three Execution Modes** - Offline, Local (via localhost), Network
 - 🔐 **Cryptographic Signing** - Built-in Ed25519 signatures for Byzantine algorithms
 - ⚡ **Automatic Lifecycle** - Node synchronization and coordination handled for you
 
@@ -63,7 +63,9 @@ cargo run --release -- \
 Options:
   -c, --config <FILE>       Path to configuration file
   -a, --algorithm <NAME>    Algorithm to run
-  -m, --mode <MODE>         Execution mode: offline or network [default: offline]
+  -m, --mode <MODE>         Execution mode: offline, local or network [default: offline]
+  -p, --port-base <PORT>    First port used when spawning local instances
+      --id <ID>             The id of the node to spawn (when running in network mode)
       --format <FORMAT>     Serialization: json or bincode [default: json]
       --timeout <SECONDS>   Timeout in seconds [default: 10]
   -v, --verbose             Increase verbosity (-v, -vv, -vvv)

@@ -36,11 +36,11 @@ struct CliArgs {
     mode: Mode,
 
     /// Serialization format
-    #[arg(long, value_enum, default_value_t = FormatType::Json)]
+    #[arg(short, long, value_enum, default_value_t = FormatType::Bincode)]
     format: FormatType,
 
     /// Timeout for the algorithm to run in seconds
-    #[arg(long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 10)]
     timeout: u64,
 
     /// Verbosity level (can be repeated: -v, -vv, -vvv)
@@ -48,8 +48,12 @@ struct CliArgs {
     verbose: u8,
 
     /// Report folder path
-    #[arg(long)]
+    #[arg(short, long)]
     report_folder: Option<PathBuf>,
+
+    /// Base port for local instances
+    #[arg(short, long, default_value_t = 10000)]
+    port_base: u16,
 }
 
 /// Execution mode for the distributed system.
@@ -57,6 +61,8 @@ struct CliArgs {
 enum Mode {
     /// Network mode (spawns a process listening on specific IP/port)
     Network,
+    /// Local mode (spawns multiple instances listening on different ports)
+    Local,
     /// Offline mode (spawns threads, uses tokio channels)
     Offline,
 }

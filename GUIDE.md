@@ -359,7 +359,7 @@ Study these examples to learn different patterns:
 
 ### Offline Mode (Recommended for Development)
 
-Run all nodes in a single process for fast, deterministic testing:
+Runs all nodes in a single process with in-memory channels:
 
 ```bash
 cargo run -- \
@@ -371,14 +371,35 @@ cargo run -- \
 
 **Advantages:**
 
-- Fast execution (no network overhead)
-- Deterministic behavior
-- Easy debugging
-- All logs in one place
+- Fastest execution (no network overhead)
+- Fully deterministic
+- Easy debugging with a single log stream
+
+### Local Mode
+
+Runs each node as a separate thread communicating over `localhost`:
+
+```bash
+cargo run -- \
+  --config configs/your_config.yaml \
+  --algorithm YourAlgorithm \
+  --mode local \
+  -p 4242 \
+  --nodes 4 \
+  --timeout 10
+```
+
+**Advantages:**
+
+- More realistic than Offline Mode
+- Still runs in one OS process
+- Good for testing timing and concurrency effects
 
 ### Network Mode
 
-Run each node in a separate process:
+> For this mode, configuration needs to have ips and ports defined
+
+Runs each node as a separate process communicating over TCP:
 
 ```bash
 # Terminal 1
@@ -395,6 +416,11 @@ cargo run -- \
   --algorithm YourAlgorithm \
   --mode network
 ```
+
+**Advantages:**
+
+- Most realistic deployment behavior
+- Useful for distributed system / cluster testing
 
 ### Logging
 
