@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     sync::Mutex,
 };
@@ -51,6 +51,9 @@ pub struct MessageChain {
 
     /// Collected chains received
     received_chains: Mutex<Vec<Vec<PeerId>>>,
+
+    /// Track which chains we've already processed (by their node path)
+    processed_chains: Mutex<HashSet<Vec<String>>>,
 }
 
 #[async_trait]
@@ -91,6 +94,10 @@ impl Algorithm for MessageChain {
                     info!("[{}] Error sending to {}: {}", self.id(), peer_id, e);
                 }
             }
+
+            // Initiator terminates immediately after starting the chain
+            info!("[{}] Initiator finished sending, terminating", self.id());
+            self.terminate().await;
         }
     }
 
@@ -122,6 +129,22 @@ impl MessageChain {
             bundle.chain.len()
         );
 
+        // Check if we've already processed this exact chain (deduplication)
+        let chain_id: Vec<String> = bundle
+            .chain
+            .iter()
+            .map(|msg| msg.node_name.clone())
+            .collect();
+
+        {
+            let mut processed = self.processed_chains.lock().unwrap();
+            if processed.contains(&chain_id) {
+                info!("[{}] Already processed this chain, ignoring", self.id());
+                return;
+            }
+            processed.insert(chain_id.clone());
+        }
+
         // Demonstrate: Display implementation shows signatures
         // Each Signed<ChainMessage> displays as: "Hop #N by nodeX (value: '...') (signed by nodeX)"
         info!("[{}] Chain messages:", self.id());
@@ -147,52 +170,53 @@ impl MessageChain {
             chains.push(node_path);
         }
 
-        // If we haven't reached max hops, extend the chain and forward
-        if last_msg.hop_count < self.max_hops {
-            info!(
-                "[{}] Extending chain (current hops: {}, max: {})",
-                self.id(),
-                last_msg.hop_count,
-                self.max_hops
-            );
+        // Extend the chain and forward (even if at max hops - 1, to allow others to reach max)
+        info!(
+            "[{}] Extending chain (current hops: {}, max: {})",
+            self.id(),
+            last_msg.hop_count,
+            self.max_hops
+        );
 
-            // Create our signed message
-            let our_msg = self.sign(ChainMessage {
-                hop_count: last_msg.hop_count + 1,
-                original_value: first_msg.original_value.clone(),
-                node_name: self.id().to_string(),
-            });
+        // Create our signed message
+        let our_msg = self.sign(ChainMessage {
+            hop_count: last_msg.hop_count + 1,
+            original_value: first_msg.original_value.clone(),
+            node_name: self.id().to_string(),
+        });
 
-            // Create new chain with all previous messages plus ours
-            let mut new_chain = bundle.chain.clone();
-            new_chain.push(our_msg);
+        // Create new chain with all previous messages plus ours
+        let mut new_chain = bundle.chain.clone();
+        new_chain.push(our_msg);
 
-            info!(
-                "[{}] Forwarding extended chain ({} total messages) to {} peers",
-                self.id(),
-                new_chain.len(),
-                self.peers().count()
-            );
+        info!(
+            "[{}] Forwarding extended chain ({} total messages) to {} peers",
+            self.id(),
+            new_chain.len(),
+            self.peers().count()
+        );
 
-            // Forward to all peers
-            for (peer_id, peer) in self.peers() {
-                // Don't send back to the peer we received from
-                if *peer_id == src {
-                    continue;
-                }
-
-                if let Err(e) = peer
-                    .receive_chain(&ChainBundle {
-                        chain: new_chain.clone(),
-                    })
-                    .await
-                {
-                    info!("[{}] Error forwarding to {}: {}", self.id(), peer_id, e);
-                }
+        // Forward to all peers
+        for (peer_id, peer) in self.peers() {
+            // Don't send back to the peer we received from
+            if *peer_id == src {
+                continue;
             }
-        } else {
+
+            if let Err(e) = peer
+                .receive_chain(&ChainBundle {
+                    chain: new_chain.clone(),
+                })
+                .await
+            {
+                info!("[{}] Error forwarding to {}: {}", self.id(), peer_id, e);
+            }
+        }
+
+        // After forwarding, check if the chain we just created reached max hops
+        if last_msg.hop_count + 1 >= self.max_hops {
             info!(
-                "[{}] Chain reached max hops ({}), terminating",
+                "[{}] Forwarded chain to max hops ({}), terminating",
                 self.id(),
                 self.max_hops
             );

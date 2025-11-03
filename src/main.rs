@@ -2,7 +2,7 @@ use clap::{Parser, ValueEnum};
 use distbench::community::PeerId;
 use distbench::transport::channel::{ChannelTransport, ChannelTransportBuilder};
 use distbench::transport::ThinConnectionManager;
-use distbench::JsonFormat;
+use distbench::{BincodeFormat, Format, JsonFormat};
 use log::{error, info};
 use runner::config::load_config;
 use runner::logging::init_logger;
@@ -94,9 +94,12 @@ async fn main() {
         }
     }
 
-    match (&args.id, &args.mode) {
-        (_, Mode::Offline) => {
-            run_offline_mode(&args, &config).await;
+    match (&args.mode, &args.format) {
+        (Mode::Offline, FormatType::Json) => {
+            run_offline_mode(&args, &config, Arc::new(JsonFormat {})).await;
+        }
+        (Mode::Offline, FormatType::Bincode) => {
+            run_offline_mode(&args, &config, Arc::new(BincodeFormat {})).await;
         }
         _ => {
             // let node_def = config
@@ -115,7 +118,12 @@ async fn main() {
 ///
 /// * `args` - Command-line arguments
 /// * `config` - Parsed configuration
-async fn run_offline_mode(args: &CliArgs, config: &runner::config::ConfigFile) {
+/// * `format` - Serialization format
+async fn run_offline_mode<F: Format + 'static>(
+    args: &CliArgs,
+    config: &runner::config::ConfigFile,
+    format: Arc<F>,
+) {
     let stop_signal = Arc::new(Notify::new());
     let builder = ChannelTransportBuilder::new();
     let mut handles = Vec::new();
@@ -124,14 +132,14 @@ async fn run_offline_mode(args: &CliArgs, config: &runner::config::ConfigFile) {
         let node_id = PeerId::new(node_id_str.clone());
 
         // If no neighbours specified, assume fully connected to all other nodes
-        let neighbours = if node_def.neighbours.is_empty() {
+        let neighbours = if node_def.neighbours.is_none() {
             config
                 .keys()
                 .filter(|k| *k != node_id_str)
                 .cloned()
                 .collect::<Vec<_>>()
         } else {
-            node_def.neighbours.clone()
+            node_def.neighbours.as_ref().unwrap().to_vec()
         };
 
         let community = setup_offline_transport::<ThinConnectionManager<ChannelTransport>>(
@@ -140,7 +148,6 @@ async fn run_offline_mode(args: &CliArgs, config: &runner::config::ConfigFile) {
             &node_id,
             &neighbours,
         );
-        let format = Arc::new(JsonFormat {});
 
         let serve_handle = start_node!(
             args.algorithm,

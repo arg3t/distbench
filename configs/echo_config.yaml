@@ -9,7 +9,6 @@ node2:
     - node1
   start_node: false
 
-
 node3:
   neighbours:
     - node1

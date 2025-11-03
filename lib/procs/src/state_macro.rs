@@ -124,7 +124,7 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
     quote! {
         impl #alg_name {
             fn N(&self) -> u32 {
-                self.__network_size
+                self.__network_size + 1
             }
 
             fn id(&self) -> &distbench::community::PeerId {

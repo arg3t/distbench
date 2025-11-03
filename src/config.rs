@@ -12,7 +12,7 @@ use std::path::Path;
 #[derive(Deserialize, Debug)]
 pub struct NodeDefinition {
     /// IDs of neighboring nodes this node can communicate with
-    pub neighbours: Vec<String>,
+    pub neighbours: Option<Vec<String>>,
     pub host: Option<String>,
     pub port: Option<u16>,
 
