@@ -17,9 +17,6 @@ struct TerminationMessage {
 
 #[framework::state]
 pub struct RingElection<T: Transport> {
-    #[framework::config(default = false)]
-    start_node: bool,
-
     #[framework::config]
     node_id: String,
 }

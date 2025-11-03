@@ -1,23 +1,19 @@
 node1:
   neighbours:
     - node2
-  start_node: true
   node_id: "1"
 
 node2:
   neighbours:
     - node3
-  start_node: false
   node_id: "2"
 
 node3:
   neighbours:
     - node4
-  start_node: false
   node_id: "3"
 
 node4:
   neighbours:
     - node1
-  start_node: false
   node_id: "4"

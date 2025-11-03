@@ -1,0 +1,183 @@
+//! Implementation of the `#[framework::state]` attribute macro.
+//!
+//! This macro transforms an algorithm state struct into a complete algorithm
+//! implementation with configuration support and peer management.
+
+use crate::config_parsing::{extract_fields, generate_config_struct};
+use crate::peer_generation::generate_peer_struct;
+use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
+use quote::{quote, ToTokens};
+use syn::{Data, DeriveInput, Field, Fields};
+
+/// Implements the `#[framework::state]` macro.
+///
+/// This macro:
+/// - Extracts `#[framework::config]` fields
+/// - Generates a corresponding Config struct
+/// - Adds `peers`, `stopped_tx`, and `stopped_rx` fields
+/// - Implements the `AlgorithmFactory` trait
+/// - Generates a Peer struct
+/// - Implements the `SelfTerminating` trait
+pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
+    let mut input = match syn::parse::<DeriveInput>(item.clone()) {
+        Ok(input) => input,
+        Err(_) => {
+            // Return original item if parsing fails (better for IDE)
+            return item;
+        }
+    };
+    let alg_name = &input.ident;
+
+    let alg_name_str = alg_name.to_string();
+    let peer_name = syn::Ident::new(
+        &format!("{}Peer", alg_name_str),
+        proc_macro2::Span::call_site(),
+    );
+    let config_name = syn::Ident::new(
+        &format!("{}Config", alg_name_str),
+        proc_macro2::Span::call_site(),
+    );
+
+    // Extract config fields, handling potential errors
+    let (config_fields, default_fields) = match extract_fields(&input) {
+        Ok((config, default)) => (config, default),
+        Err(e) => {
+            // Convert the syn::Error into a compile_error! token stream
+            return e.into_compile_error().into();
+        }
+    };
+
+    // Generate config struct if there are config fields
+    let config_struct = generate_config_struct(alg_name, &config_fields);
+
+    if let Data::Struct(ref mut data_struct) = input.data {
+        if let Fields::Named(ref mut fields) = data_struct.fields {
+            // Remove config attributes from all fields
+            for field in fields.named.iter_mut() {
+                field.attrs.retain(|attr| {
+                    let path_str = attr.into_token_stream().to_string().replace(" ", "");
+                    !path_str.contains("framework::config")
+                });
+            }
+
+            let peers_field: Field = syn::parse_quote! {
+                peers: ::std::collections::HashMap<::framework::community::PeerId, #peer_name<T>>
+            };
+            fields.named.push(peers_field);
+
+            // Add the stopped_tx and stopped_rx fields to the struct definition
+            let stopped_tx_field: Field = syn::parse_quote! {
+                #[allow(dead_code)]
+                stopped_tx: ::std::sync::Arc<::tokio::sync::watch::Sender<bool>>
+            };
+            fields.named.push(stopped_tx_field);
+
+            let stopped_rx_field: Field = syn::parse_quote! {
+                #[allow(dead_code)]
+                stopped_rx: ::tokio::sync::watch::Receiver<bool>
+            };
+            fields.named.push(stopped_rx_field);
+        }
+    }
+
+    let field_inits = generate_field_initializers(&config_fields, &default_fields);
+    let factory_impl = generate_factory_impl(&config_name, alg_name, &peer_name, &field_inits);
+    let peer_struct = generate_peer_struct(&peer_name);
+    let self_terminating_impl = generate_self_terminating_impl(alg_name);
+
+    let expanded = quote! {
+        #input
+
+        #config_struct
+
+        #factory_impl
+
+        #peer_struct
+
+        #self_terminating_impl
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// Generates field initializers for the AlgorithmFactory impl.
+fn generate_field_initializers(
+    config_fields: &[crate::config_parsing::ConfigField],
+    default_fields: &[Field],
+) -> Vec<TokenStream2> {
+    config_fields
+        .iter()
+        .map(|cf| {
+            let name = &cf.field_name;
+            let default = &cf.default_value;
+            if let Some(default) = default {
+                quote! { #name: self.#name.unwrap_or(#default) }
+            } else {
+                let name_str = name.to_string();
+                quote! { #name: self.#name.ok_or(::framework::ConfigError::RequiredField { field: #name_str.to_string() })? }
+            }
+        })
+        .chain(default_fields.iter().map(|f| {
+            let name = &f.ident;
+            quote! { #name: Default::default() }
+        }))
+        .collect()
+}
+
+/// Generates the AlgorithmFactory trait implementation.
+fn generate_factory_impl(
+    config_name: &syn::Ident,
+    alg_name: &syn::Ident,
+    peer_name: &syn::Ident,
+    field_inits: &[TokenStream2],
+) -> TokenStream2 {
+    quote! {
+        impl<T: ::framework::transport::Transport + 'static> ::framework::AlgorithmFactory<T> for #config_name {
+            type Algorithm = #alg_name<T>;
+
+            fn build(self, community: &::framework::community::Community<T>) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
+                let conn_managers = community.neighbours();
+                let peers: ::std::collections::HashMap<::framework::community::PeerId, #peer_name<T>> = conn_managers
+                    .into_iter()
+                    .map(|(peer_id, conn_manager)| {
+                        (peer_id, #peer_name::new(conn_manager))
+                    })
+                    .collect();
+
+                // Initial state is 'not stopped' (false)
+                let (stopped_tx, stopped_rx) = ::tokio::sync::watch::channel(false);
+
+                Ok(::std::sync::Arc::new(Self::Algorithm {
+                    #(#field_inits,)*
+                    peers,
+                    stopped_tx: ::std::sync::Arc::new(stopped_tx),
+                    stopped_rx,
+                }))
+            }
+        }
+    }
+}
+
+/// Generates the SelfTerminating trait implementation.
+fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
+    quote! {
+        #[async_trait::async_trait]
+        impl<T: ::framework::transport::Transport> ::framework::SelfTerminating for #alg_name<T> {
+            async fn terminate(&self) {
+                // Send 'true' to signal stopped.
+                // Ignore result: Err means all receivers dropped.
+                let _ = self.stopped_tx.send(true);
+            }
+
+            async fn terminated(&self) -> bool {
+                let mut rx = self.stopped_rx.clone();
+                // wait_for checks current value, and if not true,
+                // awaits until the predicate (*stopped) is true.
+                // Err means sender was dropped, which is fine.
+                let _ = rx.wait_for(|stopped| *stopped).await;
+                true
+            }
+        }
+    }
+}
