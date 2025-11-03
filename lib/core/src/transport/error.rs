@@ -1,4 +1,7 @@
 use thiserror::Error;
+use tokio::sync::watch::{self, error::SendError};
+
+use crate::NodeStatus;
 
 pub type Result<T> = std::result::Result<T, TransportError>;
 
@@ -44,4 +47,8 @@ pub enum TransportError {
     /// Connection closed
     #[error("Connection closed")]
     ConnectionClosed,
+
+    /// Watch error
+    #[error("Watch error: {0}")]
+    WatchError(#[from] SendError<NodeStatus>),
 }

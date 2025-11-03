@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, Notify, RwLock};
 
 use crate::community::PeerId;
 pub use crate::transport::{Address, Connection, Result, Server, Transport, TransportError};
@@ -16,6 +16,22 @@ impl Display for PeerId {
 type InternalMessage = (Option<oneshot::Sender<Result<Vec<u8>>>>, Vec<u8>);
 type ConnectionRequest = (PeerId, oneshot::Sender<mpsc::Sender<InternalMessage>>);
 
+pub struct ChannelTransportBuilder {
+    registry: Arc<RwLock<HashMap<PeerId, mpsc::Sender<ConnectionRequest>>>>,
+}
+
+impl ChannelTransportBuilder {
+    pub fn new() -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+    pub fn build(&self, local_addr: PeerId) -> Arc<ChannelTransport> {
+        Arc::new(ChannelTransport::new(local_addr, self.registry.clone()))
+    }
+}
+
+#[derive(Clone)]
 pub struct ChannelConnection {
     tx: mpsc::Sender<InternalMessage>,
 }
@@ -56,9 +72,12 @@ pub struct ChannelTransport {
 }
 
 impl ChannelTransport {
-    pub fn new(local_addr: PeerId) -> Self {
+    pub fn new(
+        local_addr: PeerId,
+        registry: Arc<RwLock<HashMap<PeerId, mpsc::Sender<ConnectionRequest>>>>,
+    ) -> Self {
         Self {
-            registry: Arc::new(RwLock::new(HashMap::new())),
+            registry,
             local_addr,
         }
     }
@@ -92,7 +111,11 @@ impl Transport for ChannelTransport {
         Ok(ChannelConnection { tx })
     }
 
-    async fn serve(&self, server: impl Server<Self> + 'static) -> Result<()> {
+    async fn serve(
+        &self,
+        server: impl Server<Self> + 'static,
+        stop_signal: Arc<Notify>,
+    ) -> Result<()> {
         let (tx, mut rx) = mpsc::channel(100);
 
         {
@@ -100,28 +123,63 @@ impl Transport for ChannelTransport {
             registry.insert(self.local_addr.clone(), tx);
         }
 
-        while let Some((from, request_tx)) = rx.recv().await {
-            let (tx, mut rx) = mpsc::channel(100);
-            let server = server.clone();
-            request_tx
-                .send(tx)
-                .map_err(|_| TransportError::ConnectionClosed)?;
+        loop {
+            tokio::select! {
+                _ = stop_signal.notified() => {
+                    break;
+                },
 
-            tokio::spawn(async move {
-                while let Some((response_tx, payload)) = rx.recv().await {
-                    let result = server.handle(&from, payload).await;
-
-                    if let Some(response_tx) = response_tx {
-                        let response = match result {
-                            Ok(Some(data)) => Ok(data),
-                            Ok(None) => Ok(Vec::new()),
-                            Err(e) => Err(e),
-                        };
-
-                        let _ = response_tx.send(response);
+                terminated = server.terminated() => {
+                    if terminated {
+                        break;
                     }
-                }
-            });
+                },
+                Some((from, request_tx)) = rx.recv() => {
+                    let (tx, mut rx) = mpsc::channel(100);
+                    let server = server.clone();
+                    request_tx
+                        .send(tx)
+                        .map_err(|_| TransportError::ConnectionClosed)?;
+
+                    let signal_clone = stop_signal.clone();
+                    let node_context = crate::get_node_context();
+
+                    let handler_future = async move {
+                        loop {
+                            tokio::select! {
+                                _ = signal_clone.notified() => {
+                                    server.terminate().await;
+                                    break;
+                                },
+                                terminated = server.terminated() => {
+                                    if terminated {
+                                        break;
+                                    }
+                                },
+                                Some((response_tx, payload)) = rx.recv() => {
+                                    let result = server.handle(&from, payload).await;
+
+                                    if let Some(response_tx) = response_tx {
+                                        let response = match result {
+                                            Ok(Some(data)) => Ok(data),
+                                            Ok(None) => Ok(Vec::new()),
+                                            Err(e) => Err(e),
+                                        };
+
+                                        let _ = response_tx.send(response);
+                                    }
+                                }
+                            }
+                        }
+                    };
+
+                    if let Some(ctx) = node_context {
+                        tokio::spawn(crate::NODE_ID_CTX.scope(ctx, handler_future));
+                    } else {
+                        tokio::spawn(handler_future);
+                    }
+                },
+            }
         }
 
         let mut registry = self.registry.write().await;

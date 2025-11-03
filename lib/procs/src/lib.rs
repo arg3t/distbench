@@ -247,7 +247,7 @@ fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
                 None => {
                     quote! {
                         pub async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError> {
-                            use ::framework::transport::Connection;
+                            use ::framework::transport::ConnectionManager;
                             let envelope = ::framework::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
                                 ::serde_json::to_vec(msg)
@@ -261,7 +261,7 @@ fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
                                     message: format!("Failed to serialize envelope: {}", e)
                                 })?;
 
-                            self.connection.cast(envelope_bytes).await
+                            self.connection_manager.cast(envelope_bytes).await
                                 .map_err(|e| ::framework::PeerError::TransportError {
                                     message: format!("Failed to cast message: {}", e)
                                 })?;
@@ -274,7 +274,7 @@ fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
                     let reply_type_str = quote!(#reply_type).to_string().replace(" ", "");
                     quote! {
                         pub async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError> {
-                            use ::framework::transport::Connection;
+                            use ::framework::transport::ConnectionManager;
                             let envelope = ::framework::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
                                 ::serde_json::to_vec(msg)
@@ -288,7 +288,7 @@ fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
                                     message: format!("Failed to serialize envelope: {}", e)
                                 })?;
 
-                            let reply_bytes = self.connection.send(envelope_bytes).await
+                            let reply_bytes = self.connection_manager.send(envelope_bytes).await
                                 .map_err(|e| ::framework::PeerError::TransportError {
                                     message: format!("Failed to send message: {}", e)
                                 })?;
@@ -309,7 +309,7 @@ fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
 
 // ### MODIFIED FUNCTION ###
 // Now handles the Result from extract_fields
-fn algorithm_setup_impl(item: TokenStream) -> TokenStream {
+fn algorithm_state_impl(item: TokenStream) -> TokenStream {
     let mut input = match syn::parse::<DeriveInput>(item.clone()) {
         Ok(input) => input,
         Err(_) => {
@@ -355,6 +355,21 @@ fn algorithm_setup_impl(item: TokenStream) -> TokenStream {
                 peers: ::std::collections::HashMap<::framework::community::PeerId, #peer_name<T>>
             };
             fields.named.push(peers_field);
+
+            // ### START ADDITION ###
+            // Add the stopped_tx and stopped_rx fields to the struct definition
+            let stopped_tx_field: Field = syn::parse_quote! {
+                #[allow(dead_code)]
+                stopped_tx: ::std::sync::Arc<::tokio::sync::watch::Sender<bool>>
+            };
+            fields.named.push(stopped_tx_field);
+
+            let stopped_rx_field: Field = syn::parse_quote! {
+                #[allow(dead_code)]
+                stopped_rx: ::tokio::sync::watch::Receiver<bool>
+            };
+            fields.named.push(stopped_rx_field);
+            // ### END ADDITION ###
         }
     }
 
@@ -367,7 +382,7 @@ fn algorithm_setup_impl(item: TokenStream) -> TokenStream {
                 quote! { #name: self.#name.unwrap_or(#default) }
             } else {
                 let name_str = name.to_string();
-                quote! { #name: self.#name.ok_or(::framework::ConfigError::RequiredField { field: #name_str })? }
+                quote! { #name: self.#name.ok_or(::framework::ConfigError::RequiredField { field: #name_str.to_string() })? }
             }
         })
         .chain(default_fields.iter().map(|f| {
@@ -376,15 +391,31 @@ fn algorithm_setup_impl(item: TokenStream) -> TokenStream {
         }))
         .collect();
 
-    let initializer_impl = quote! {
-        impl<T: ::framework::transport::Transport> ::framework::AlgorithmBuilder<T> for #config_name {
+    let factory_impl = quote! {
+        impl<T: ::framework::transport::Transport + 'static> ::framework::AlgorithmFactory<T> for #config_name {
             type Algorithm = #alg_name<T>;
-            type Peer = #peer_name<T>;
 
-            fn build(self, peers: ::std::collections::HashMap<::framework::community::PeerId, Self::Peer>) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
+            fn build(self, community: &::framework::community::Community<T>) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
+                let conn_managers = community.neighbours();
+                let peers: ::std::collections::HashMap<::framework::community::PeerId, #peer_name<T>> = conn_managers
+                    .into_iter()
+                    .map(|(peer_id, conn_manager)| {
+                        (peer_id, #peer_name::new(conn_manager))
+                    })
+                    .collect();
+
+                // ### START ADDITION ###
+                // Initial state is 'not stopped' (false)
+                let (stopped_tx, stopped_rx) = ::tokio::sync::watch::channel(false);
+                // ### END ADDITION ###
+
                 Ok(::std::sync::Arc::new(Self::Algorithm {
                     #(#field_inits,)*
                     peers,
+                    // ### START ADDITION ###
+                    stopped_tx: ::std::sync::Arc::new(stopped_tx),
+                    stopped_rx,
+                    // ### END ADDITION ###
                 }))
             }
         }
@@ -394,24 +425,49 @@ fn algorithm_setup_impl(item: TokenStream) -> TokenStream {
     let peer_struct = quote! {
         #[derive(Clone)]
         pub struct #peer_name<T: ::framework::transport::Transport> {
-            connection: T::Connection,
+            connection_manager: ::std::sync::Arc<dyn ::framework::transport::ConnectionManager<T>>,
         }
 
         impl<T: ::framework::transport::Transport> #peer_name<T> {
-            pub fn new(connection: T::Connection) -> Self {
-                Self { connection }
+            pub fn new(connection_manager: ::std::sync::Arc<dyn ::framework::transport::ConnectionManager<T>>) -> Self {
+                Self { connection_manager }
             }
         }
     };
+
+    // ### START ADDITION ###
+    // Generate the SelfTerminating trait implementation
+    let self_terminating_impl = quote! {
+        #[async_trait::async_trait]
+        impl<T: ::framework::transport::Transport> ::framework::SelfTerminating for #alg_name<T> {
+            async fn terminate(&self) {
+                // Send 'true' to signal stopped.
+                // Ignore result: Err means all receivers dropped.
+                let _ = self.stopped_tx.send(true);
+            }
+
+            async fn terminated(&self) -> bool {
+                let mut rx = self.stopped_rx.clone();
+                // wait_for checks current value, and if not true,
+                // awaits until the predicate (*stopped) is true.
+                // Err means sender was dropped, which is fine.
+                let _ = rx.wait_for(|stopped| *stopped).await;
+                true
+            }
+        }
+    };
+    // ### END ADDITION ###
 
     let expanded = quote! {
         #input
 
         #config_struct
 
-        #initializer_impl
+        #factory_impl
 
         #peer_struct
+
+        #self_terminating_impl // ### ADDITION ###
     };
 
     TokenStream::from(expanded)
@@ -512,8 +568,8 @@ fn message_impl(item: TokenStream) -> TokenStream {
 
 // Export under algorithm:: namespace via naming convention
 #[proc_macro_attribute]
-pub fn setup(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    algorithm_setup_impl(item)
+pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    algorithm_state_impl(item)
 }
 
 #[proc_macro_attribute]

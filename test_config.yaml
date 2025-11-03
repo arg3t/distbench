@@ -1,0 +1,9 @@
+node1:
+  neighbours:
+    - node2
+  start_node: true
+
+node2:
+  neighbours:
+    - node1
+  start_node: false
