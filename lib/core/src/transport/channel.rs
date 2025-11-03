@@ -1,3 +1,9 @@
+//! In-memory channel-based transport implementation.
+//!
+//! This module provides a transport implementation that uses in-memory channels
+//! instead of network sockets. This is primarily useful for testing and
+//! simulating distributed systems without network overhead.
+
 use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 use tokio::sync::{mpsc, oneshot, Notify, RwLock};
@@ -16,21 +22,41 @@ impl Display for PeerId {
 type InternalMessage = (Option<oneshot::Sender<Result<Vec<u8>>>>, Vec<u8>);
 type ConnectionRequest = (PeerId, oneshot::Sender<mpsc::Sender<InternalMessage>>);
 
+/// Builder for creating channel-based transport instances.
+///
+/// Multiple transport instances can share the same registry, allowing
+/// them to communicate with each other through in-memory channels.
 pub struct ChannelTransportBuilder {
     registry: Arc<RwLock<HashMap<PeerId, mpsc::Sender<ConnectionRequest>>>>,
 }
 
 impl ChannelTransportBuilder {
+    /// Creates a new channel transport builder with an empty registry.
     pub fn new() -> Self {
         Self {
             registry: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    /// Builds a new channel transport for the given peer ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `local_addr` - The peer ID that this transport instance represents
+    ///
+    /// # Returns
+    ///
+    /// A new channel transport instance that shares the registry with
+    /// other transports created from this builder.
     pub fn build(&self, local_addr: PeerId) -> Arc<ChannelTransport> {
         Arc::new(ChannelTransport::new(local_addr, self.registry.clone()))
     }
 }
 
+/// A connection using in-memory channels.
+///
+/// This connection type allows sending messages to a peer using
+/// tokio channels instead of network sockets.
 #[derive(Clone)]
 pub struct ChannelConnection {
     tx: mpsc::Sender<InternalMessage>,
@@ -65,6 +91,11 @@ impl Connection<ChannelTransport> for ChannelConnection {
     }
 }
 
+/// Channel-based transport implementation.
+///
+/// This transport uses in-memory channels for communication between nodes,
+/// making it ideal for testing distributed algorithms without network overhead.
+/// All nodes using the same registry can communicate with each other.
 #[derive(Clone)]
 pub struct ChannelTransport {
     registry: Arc<RwLock<HashMap<PeerId, mpsc::Sender<ConnectionRequest>>>>,
@@ -72,6 +103,12 @@ pub struct ChannelTransport {
 }
 
 impl ChannelTransport {
+    /// Creates a new channel transport.
+    ///
+    /// # Arguments
+    ///
+    /// * `local_addr` - The peer ID for this transport instance
+    /// * `registry` - Shared registry of all peers in the system
     pub fn new(
         local_addr: PeerId,
         registry: Arc<RwLock<HashMap<PeerId, mpsc::Sender<ConnectionRequest>>>>,

@@ -1,9 +1,26 @@
+//! Connection manager implementations.
+//!
+//! This module provides connection manager implementations that handle
+//! connection lifecycle and message sending.
+
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::{Connection, ConnectionManager, Result, Transport};
 
+/// A lightweight connection manager that lazily establishes connections.
+///
+/// `ThinConnectionManager` caches a connection to a peer and reuses it
+/// for multiple message sends. The connection is established on the first
+/// message send and then reused for subsequent sends.
+///
+/// This is useful for reducing connection overhead when communicating
+/// with the same peer multiple times.
+///
+/// # Type Parameters
+///
+/// * `T` - The transport layer implementation
 pub struct ThinConnectionManager<T: Transport> {
     transport: Arc<T>,
     address: T::Address,
@@ -11,6 +28,12 @@ pub struct ThinConnectionManager<T: Transport> {
 }
 
 impl<T: Transport> ThinConnectionManager<T> {
+    /// Creates a new thin connection manager for the given address.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The transport layer to use for connecting
+    /// * `address` - The address of the peer to connect to
     pub fn new(transport: Arc<T>, address: T::Address) -> Self {
         Self {
             transport,
@@ -19,6 +42,18 @@ impl<T: Transport> ThinConnectionManager<T> {
         }
     }
 
+    /// Ensures a connection is established, creating one if needed.
+    ///
+    /// This method uses double-checked locking to minimize contention
+    /// when the connection is already established.
+    ///
+    /// # Returns
+    ///
+    /// A connection to the peer.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `TransportError` if the connection cannot be established.
     async fn ensure_connected(&self) -> Result<T::Connection> {
         {
             let conn_guard = self.connection.read().await;
