@@ -15,7 +15,7 @@ use syn::{Data, DeriveInput, Field, Fields};
 /// This macro:
 /// - Extracts `#[framework::config]` fields
 /// - Generates a corresponding Config struct
-/// - Adds `peers`, `stopped_tx`, and `stopped_rx` fields
+/// - Adds `peers` and `stopped` fields
 /// - Implements the `AlgorithmFactory` trait
 /// - Generates a Peer struct
 /// - Implements the `SelfTerminating` trait
@@ -34,6 +34,11 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
         &format!("{}Peer", alg_name_str),
         proc_macro2::Span::call_site(),
     );
+    let peer_name_impl = syn::Ident::new(
+        &format!("{}PeerImpl", alg_name_str),
+        proc_macro2::Span::call_site(),
+    );
+
     let config_name = syn::Ident::new(
         &format!("{}Config", alg_name_str),
         proc_macro2::Span::call_site(),
@@ -62,28 +67,35 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
             }
 
             let peers_field: Field = syn::parse_quote! {
-                peers: ::std::collections::HashMap<::framework::community::PeerId, #peer_name<T>>
+                peers: ::std::collections::HashMap<::framework::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>>
             };
             fields.named.push(peers_field);
 
-            // Add the stopped_tx and stopped_rx fields to the struct definition
-            let stopped_tx_field: Field = syn::parse_quote! {
+            // Add the stopped field to the struct definition
+            let stopped_field: Field = syn::parse_quote! {
                 #[allow(dead_code)]
-                stopped_tx: ::std::sync::Arc<::tokio::sync::watch::Sender<bool>>
+                stopped: ::std::sync::Arc<::tokio::sync::watch::Sender<bool>>
             };
-            fields.named.push(stopped_tx_field);
+            fields.named.push(stopped_field);
 
-            let stopped_rx_field: Field = syn::parse_quote! {
+            // Add the status_rx field to the struct definition
+            let status_rx_field: Field = syn::parse_quote! {
                 #[allow(dead_code)]
-                stopped_rx: ::tokio::sync::watch::Receiver<bool>
+                status_rx: ::std::sync::Arc<::tokio::sync::Mutex<::tokio::sync::watch::Receiver<bool>>>
             };
-            fields.named.push(stopped_rx_field);
+            fields.named.push(status_rx_field);
         }
     }
 
     let field_inits = generate_field_initializers(&config_fields, &default_fields);
-    let factory_impl = generate_factory_impl(&config_name, alg_name, &peer_name, &field_inits);
-    let peer_struct = generate_peer_struct(&peer_name);
+    let factory_impl = generate_factory_impl(
+        &config_name,
+        alg_name,
+        &peer_name,
+        &peer_name_impl,
+        &field_inits,
+    );
+    let peer_struct = generate_peer_struct(&peer_name_impl);
     let self_terminating_impl = generate_self_terminating_impl(alg_name);
 
     let expanded = quote! {
@@ -130,18 +142,19 @@ fn generate_factory_impl(
     config_name: &syn::Ident,
     alg_name: &syn::Ident,
     peer_name: &syn::Ident,
+    peer_name_impl: &syn::Ident,
     field_inits: &[TokenStream2],
 ) -> TokenStream2 {
     quote! {
-        impl<T: ::framework::transport::Transport + 'static> ::framework::AlgorithmFactory<T> for #config_name {
-            type Algorithm = #alg_name<T>;
+        impl<T: ::framework::transport::Transport + 'static, CM: ::framework::transport::ConnectionManager<T> + 'static> ::framework::AlgorithmFactory<T, CM> for #config_name {
+            type Algorithm = #alg_name;
 
-            fn build(self, community: &::framework::community::Community<T>) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
+            fn build(self, community: &::framework::community::Community<T, CM>) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
                 let conn_managers = community.neighbours();
-                let peers: ::std::collections::HashMap<::framework::community::PeerId, #peer_name<T>> = conn_managers
+                let peers: ::std::collections::HashMap<::framework::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>> = conn_managers
                     .into_iter()
                     .map(|(peer_id, conn_manager)| {
-                        (peer_id, #peer_name::new(conn_manager))
+                        (peer_id, std::sync::Arc::new(Box::new(#peer_name_impl::new(conn_manager)) as Box<dyn #peer_name>))
                     })
                     .collect();
 
@@ -151,8 +164,8 @@ fn generate_factory_impl(
                 Ok(::std::sync::Arc::new(Self::Algorithm {
                     #(#field_inits,)*
                     peers,
-                    stopped_tx: ::std::sync::Arc::new(stopped_tx),
-                    stopped_rx,
+                    stopped: ::std::sync::Arc::new(stopped_tx),
+                    status_rx: ::std::sync::Arc::new(::tokio::sync::Mutex::new(stopped_rx)),
                 }))
             }
         }
@@ -163,15 +176,15 @@ fn generate_factory_impl(
 fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
     quote! {
         #[async_trait::async_trait]
-        impl<T: ::framework::transport::Transport> ::framework::SelfTerminating for #alg_name<T> {
+        impl ::framework::SelfTerminating for #alg_name {
             async fn terminate(&self) {
                 // Send 'true' to signal stopped.
                 // Ignore result: Err means all receivers dropped.
-                let _ = self.stopped_tx.send(true);
+                let _ = self.stopped.send(true);
             }
 
             async fn terminated(&self) -> bool {
-                let mut rx = self.stopped_rx.clone();
+                let mut rx = self.status_rx.lock().await;
                 // wait_for checks current value, and if not true,
                 // awaits until the predicate (*stopped) is true.
                 // Err means sender was dropped, which is fine.

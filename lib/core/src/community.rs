@@ -55,16 +55,16 @@ impl PeerId {
 /// # Type Parameters
 ///
 /// * `T` - The transport layer implementation
-pub struct Community<T: transport::Transport> {
+pub struct Community<T: transport::Transport, CM: transport::ConnectionManager<T>> {
     neighbours: HashSet<PeerId>,
-    connections: HashMap<PeerId, Arc<dyn transport::ConnectionManager<T>>>,
+    connections: HashMap<PeerId, Arc<CM>>,
     peers: HashMap<T::Address, PeerId>,
     transport: Arc<T>,
     peer_status: RwLock<HashMap<PeerId, NodeStatus>>,
     keys: RwLock<HashMap<PeerId, PublicKey>>,
 }
 
-impl<T: transport::Transport + 'static> Community<T> {
+impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Community<T, CM> {
     /// Creates a new community.
     ///
     /// # Arguments
@@ -81,12 +81,10 @@ impl<T: transport::Transport + 'static> Community<T> {
         peer_addresses: HashMap<PeerId, T::Address>,
         transport: Arc<T>,
     ) -> Self {
-        let connections: HashMap<PeerId, Arc<dyn transport::ConnectionManager<T>>> = peer_addresses
+        let connections: HashMap<PeerId, Arc<CM>> = peer_addresses
             .iter()
             .map(|(id, addr)| {
-                let conn_manager: Arc<dyn transport::ConnectionManager<T>> = Arc::new(
-                    transport::ThinConnectionManager::new(transport.clone(), addr.clone()),
-                );
+                let conn_manager: Arc<CM> = Arc::new(CM::new(transport.clone(), addr.clone()));
                 (id.clone(), conn_manager)
             })
             .collect();
@@ -136,8 +134,8 @@ impl<T: transport::Transport + 'static> Community<T> {
     /// # Returns
     ///
     /// An iterator yielding connection managers for each peer in the community.
-    pub fn all_peers(&self) -> impl Iterator<Item = Arc<dyn transport::ConnectionManager<T>>> + '_ {
-        self.connections.values().map(|cm| cm.clone())
+    pub fn all_peers(&self) -> impl Iterator<Item = Arc<CM>> + '_ {
+        self.connections.values().cloned()
     }
 
     /// Looks up the peer ID for a given address.
@@ -162,7 +160,7 @@ impl<T: transport::Transport + 'static> Community<T> {
     /// # Returns
     ///
     /// `Some(connection_manager)` if the peer is known, `None` otherwise.
-    pub fn connection(&self, id: &PeerId) -> Option<Arc<dyn transport::ConnectionManager<T>>> {
+    pub fn connection(&self, id: &PeerId) -> Option<Arc<CM>> {
         self.connections.get(id).cloned()
     }
 
@@ -171,7 +169,7 @@ impl<T: transport::Transport + 'static> Community<T> {
     /// # Returns
     ///
     /// A map from neighbor peer IDs to their connection managers.
-    pub fn neighbours(&self) -> HashMap<PeerId, Arc<dyn transport::ConnectionManager<T>>> {
+    pub fn neighbours(&self) -> HashMap<PeerId, Arc<CM>> {
         self.neighbours
             .iter()
             .filter_map(|id| self.connections.get(id).map(|cm| (id.clone(), cm.clone())))

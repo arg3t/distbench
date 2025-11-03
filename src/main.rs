@@ -3,7 +3,8 @@ use distbench::config::load_config;
 use distbench::logging::init_logger;
 use distbench::transport_setup::setup_offline_transport;
 use framework::community::PeerId;
-use framework::transport::channel::ChannelTransportBuilder;
+use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
+use framework::transport::ThinConnectionManager;
 use log::{error, info};
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -104,7 +105,12 @@ async fn run_offline_mode(args: &CliArgs, config: &distbench::config::ConfigFile
 
     for (node_id_str, node_def) in config.iter() {
         let node_id = PeerId::new(node_id_str.clone());
-        let community = setup_offline_transport(config, &builder, &node_id, &node_def.neighbours);
+        let community = setup_offline_transport::<ThinConnectionManager<ChannelTransport>>(
+            config,
+            &builder,
+            &node_id,
+            &node_def.neighbours,
+        );
 
         let serve_future = start_node!(
             args.algorithm,

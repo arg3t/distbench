@@ -28,20 +28,6 @@ pub struct ThinConnectionManager<T: Transport> {
 }
 
 impl<T: Transport> ThinConnectionManager<T> {
-    /// Creates a new thin connection manager for the given address.
-    ///
-    /// # Arguments
-    ///
-    /// * `transport` - The transport layer to use for connecting
-    /// * `address` - The address of the peer to connect to
-    pub fn new(transport: Arc<T>, address: T::Address) -> Self {
-        Self {
-            transport,
-            address,
-            connection: Arc::new(RwLock::new(None)),
-        }
-    }
-
     /// Ensures a connection is established, creating one if needed.
     ///
     /// This method uses double-checked locking to minimize contention
@@ -87,6 +73,14 @@ impl<T: Transport> Clone for ThinConnectionManager<T> {
 
 #[async_trait]
 impl<T: Transport> ConnectionManager<T> for ThinConnectionManager<T> {
+    fn new(transport: Arc<T>, address: T::Address) -> Self {
+        Self {
+            transport,
+            address,
+            connection: Arc::new(RwLock::new(None)),
+        }
+    }
+
     async fn send(&self, msg: Vec<u8>) -> Result<Vec<u8>> {
         let connection = self.ensure_connected().await?;
         connection.send(msg).await

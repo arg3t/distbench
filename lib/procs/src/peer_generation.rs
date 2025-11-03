@@ -7,6 +7,26 @@ use crate::handler_parsing::HandlerInfo;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 
+pub(crate) fn generate_peer_trait_fns(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
+    handlers
+        .iter()
+        .map(|handler| {
+            let method_name = &handler.method_name;
+            let msg_type = &handler.msg_type;
+            let reply_type = &handler.reply_type;
+            if handler.reply_type.is_some() {
+                quote! {
+                    async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError>;
+                }
+            } else {
+                quote! {
+                    async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError>;
+                }
+            }
+        })
+        .collect()
+}
+
 /// Generates peer methods for communicating with other nodes.
 ///
 /// For each handler method, generates a corresponding method on the peer type
@@ -27,7 +47,7 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                 None => {
                     // Cast method (no reply expected)
                     quote! {
-                        pub async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError> {
+                        async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError> {
                             use ::framework::transport::ConnectionManager;
                             let envelope = ::framework::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
@@ -55,7 +75,7 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                     // Send method (expects reply)
                     let reply_type_str = quote!(#reply_type).to_string().replace(" ", "");
                     quote! {
-                        pub async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError> {
+                        async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError> {
                             use ::framework::transport::ConnectionManager;
                             let envelope = ::framework::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
@@ -99,13 +119,17 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 pub(crate) fn generate_peer_struct(peer_name: &syn::Ident) -> TokenStream2 {
     quote! {
         #[derive(Clone)]
-        pub struct #peer_name<T: ::framework::transport::Transport> {
-            connection_manager: ::std::sync::Arc<dyn ::framework::transport::ConnectionManager<T>>,
+        struct #peer_name<T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> {
+            connection_manager: ::std::sync::Arc<CM>,
+            _phantom: ::std::marker::PhantomData<T>,
         }
 
-        impl<T: ::framework::transport::Transport> #peer_name<T> {
-            pub fn new(connection_manager: ::std::sync::Arc<dyn ::framework::transport::ConnectionManager<T>>) -> Self {
-                Self { connection_manager }
+        impl<T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name<T, CM> {
+            pub fn new(connection_manager: ::std::sync::Arc<CM>) -> Self {
+                Self {
+                    connection_manager,
+                    _phantom: ::std::marker::PhantomData,
+                }
             }
         }
     }

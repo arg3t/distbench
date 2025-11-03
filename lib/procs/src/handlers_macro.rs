@@ -4,7 +4,7 @@
 //! method implementations from handler methods.
 
 use crate::handler_parsing::{extract_all_handlers, generate_algorithm_handler_impl};
-use crate::peer_generation::generate_peer_methods;
+use crate::peer_generation::{generate_peer_methods, generate_peer_trait_fns};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{ItemImpl, Type};
@@ -16,12 +16,10 @@ use syn::{ItemImpl, Type};
 /// - Generates the `AlgorithmHandler` trait implementation
 /// - Generates corresponding methods on the Peer type
 pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
-    let input = match syn::parse::<ItemImpl>(item.clone()) {
+    let input = match syn::parse::<ItemImpl>(item) {
         Ok(input) => input,
-        Err(_) => {
-            return TokenStream::from(quote! {
-                compile_error!("Failed to parse item");
-            });
+        Err(e) => {
+            return TokenStream::from(e.to_compile_error());
         }
     };
 
@@ -49,20 +47,34 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
         proc_macro2::Span::call_site(),
     );
 
-    // Extract all methods as handlers
-    let handlers = extract_all_handlers(&input);
+    let peer_name_impl = syn::Ident::new(
+        &format!("{}PeerImpl", base_ident),
+        proc_macro2::Span::call_site(),
+    );
 
-    // If no handlers found, just return the original impl
-    if handlers.is_empty() {
-        return TokenStream::from(quote! { #input });
-    }
+    // Extract all methods as handlers
+    let handlers = match extract_all_handlers(&input) {
+        Ok(handlers) => handlers,
+        Err(e) => {
+            return e.to_compile_error().into();
+        }
+    };
 
     let algorithm_handler_impl = generate_algorithm_handler_impl(&base_ident, &handlers);
     let peer_methods = generate_peer_methods(&handlers);
+    let peer_trait_fns = generate_peer_trait_fns(&handlers);
+
+    let peer_trait_impl = quote! {
+        #[async_trait::async_trait]
+        trait #peer_name: Send + Sync {
+            #(#peer_trait_fns)*
+        }
+    };
 
     // Generate only the impl block for Peer methods, not the struct itself
     let peer_methods_impl = quote! {
-        impl<T: ::framework::transport::Transport> #peer_name<T> {
+        #[async_trait::async_trait]
+        impl<T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name for #peer_name_impl<T, CM> {
             #(#peer_methods)*
         }
     };
@@ -72,6 +84,8 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
         #input
 
         #algorithm_handler_impl
+
+        #peer_trait_impl
 
         #peer_methods_impl
     };

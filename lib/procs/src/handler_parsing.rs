@@ -24,7 +24,7 @@ pub(crate) struct HandlerInfo {
 /// # Arguments
 ///
 /// * `method` - The method to parse
-pub(crate) fn parse_handler_method(method: &ImplItemFn) -> Option<HandlerInfo> {
+pub(crate) fn parse_handler_method(method: &ImplItemFn) -> Result<HandlerInfo, syn::Error> {
     let method_name = method.sig.ident.clone();
     let is_async = method.sig.asyncness.is_some();
 
@@ -35,16 +35,24 @@ pub(crate) fn parse_handler_method(method: &ImplItemFn) -> Option<HandlerInfo> {
 
     if let Some(syn::FnArg::Typed(pat_type)) = method.sig.inputs.iter().nth(2) {
         if let Type::Reference(type_ref) = &*pat_type.ty {
-            return Some(HandlerInfo {
+            return Ok(HandlerInfo {
                 method_name,
                 msg_type: type_ref.elem.clone(),
                 is_async,
                 reply_type,
             });
+        } else {
+            return Err(syn::Error::new_spanned(
+                pat_type,
+                "The third parameter must be a reference type",
+            ));
         }
+    } else {
+        return Err(syn::Error::new_spanned(
+            method.sig.inputs.iter().nth(2).unwrap(),
+            "The third parameter must be a reference type",
+        ));
     }
-
-    None
 }
 
 /// Extracts all handler methods from an implementation block.
@@ -56,17 +64,28 @@ pub(crate) fn parse_handler_method(method: &ImplItemFn) -> Option<HandlerInfo> {
 /// # Returns
 ///
 /// A vector of `HandlerInfo` for all methods that match the handler pattern.
-pub(crate) fn extract_all_handlers(input: &ItemImpl) -> Vec<HandlerInfo> {
-    input
-        .items
-        .iter()
-        .filter_map(|item| {
-            if let ImplItem::Fn(method) = item {
-                return parse_handler_method(method);
+pub(crate) fn extract_all_handlers(input: &ItemImpl) -> Result<Vec<HandlerInfo>, syn::Error> {
+    let mut errors = Vec::new();
+    let mut handlers = Vec::new();
+    for item in input.items.iter() {
+        if let ImplItem::Fn(method) = item {
+            match parse_handler_method(method) {
+                Ok(handler) => handlers.push(handler),
+                Err(e) => errors.push(e),
             }
-            None
-        })
-        .collect()
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(handlers)
+    } else {
+        let mut error = errors.pop().unwrap();
+        for e in errors {
+            error.combine(e);
+        }
+
+        Err(error)
+    }
 }
 
 /// Generates the `AlgorithmHandler` trait implementation.
@@ -130,7 +149,7 @@ pub(crate) fn generate_algorithm_handler_impl(
 
     quote! {
         #[async_trait::async_trait]
-        impl<T: ::framework::transport::Transport> ::framework::AlgorithmHandler for #self_ty<T> {
+        impl ::framework::AlgorithmHandler for #self_ty {
             async fn handle(
                 &self,
                 src: ::framework::community::PeerId,

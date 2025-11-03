@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use framework::{self, community::PeerId, transport::Transport, Algorithm, SelfTerminating};
+use framework::{self, community::PeerId, Algorithm, SelfTerminating};
 use log::{error, info};
-use serde::{Deserialize, Serialize};
 
 #[framework::message]
 struct Message {
@@ -12,13 +11,13 @@ struct Message {
 }
 
 #[framework::state]
-pub struct Echo<T: Transport> {
+pub struct Echo {
     #[framework::config(default = false)]
     start_node: bool,
 }
 
 #[async_trait]
-impl<T: Transport> Algorithm<T> for Echo<T> {
+impl Algorithm for Echo {
     async fn on_start(&self) {
         info!("Echo algorithm starting");
         if self.start_node {
@@ -45,7 +44,7 @@ impl<T: Transport> Algorithm<T> for Echo<T> {
 }
 
 #[framework::handlers]
-impl<T: Transport> Echo<T> {
+impl Echo {
     async fn message(&self, src: PeerId, msg: &Message) -> Option<String> {
         info!("Received message from {}: {}", src.to_string(), msg.message);
         Some(msg.message.clone())

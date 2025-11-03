@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use log::{debug, error};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{watch, Notify};
@@ -20,14 +21,26 @@ use crate::NODE_ID_CTX;
 /// Internal peer representation for node-to-node communication.
 ///
 /// Wraps a connection manager and provides methods to send node lifecycle messages.
-struct NodePeer<T: Transport> {
-    conn_manager: Arc<dyn ConnectionManager<T>>,
+struct NodePeer<T, CM>
+where
+    T: Transport,
+    CM: ConnectionManager<T>,
+{
+    conn_manager: Arc<CM>,
+    _phantom: PhantomData<T>,
 }
 
-impl<T: Transport> NodePeer<T> {
+impl<T, CM> NodePeer<T, CM>
+where
+    T: Transport,
+    CM: ConnectionManager<T>,
+{
     /// Creates a new `NodePeer` with the given connection manager.
-    pub fn new(conn_manager: Arc<dyn ConnectionManager<T>>) -> Self {
-        Self { conn_manager }
+    pub fn new(conn_manager: Arc<CM>) -> Self {
+        Self {
+            conn_manager,
+            _phantom: PhantomData,
+        }
     }
 
     /// Notifies the peer that this node has started.
@@ -77,25 +90,37 @@ impl<T: Transport> NodePeer<T> {
 ///     Arc::new(algorithm),
 /// )?;
 /// ```
-pub struct Node<T: Transport, A: Algorithm<T>> {
+pub struct Node<T, CM, A>
+where
+    T: Transport,
+    CM: ConnectionManager<T>,
+    A: Algorithm,
+{
     id: PeerId,
     status: Arc<watch::Sender<NodeStatus>>,
-    community: Arc<Community<T>>,
+    status_rx: Arc<tokio::sync::Mutex<watch::Receiver<NodeStatus>>>,
+    community: Arc<Community<T, CM>>,
     algo: Arc<A>,
 }
 
-impl<T: Transport, A: Algorithm<T>> Clone for Node<T, A> {
+impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm> Clone for Node<T, CM, A> {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
             status: Arc::clone(&self.status),
+            status_rx: Arc::clone(&self.status_rx),
             community: Arc::clone(&self.community),
             algo: Arc::clone(&self.algo),
         }
     }
 }
 
-impl<T: Transport + 'static, A: Algorithm<T> + 'static> Node<T, A> {
+impl<T, CM, A> Node<T, CM, A>
+where
+    T: Transport + 'static,
+    CM: ConnectionManager<T> + 'static,
+    A: Algorithm + 'static,
+{
     /// Creates a new node with the specified ID, community, and algorithm.
     ///
     /// # Arguments
@@ -109,14 +134,16 @@ impl<T: Transport + 'static, A: Algorithm<T> + 'static> Node<T, A> {
     /// Returns a `ConfigError` if the node cannot be initialized.
     pub fn new(
         id: PeerId,
-        community: Arc<Community<T>>,
+        community: Arc<Community<T, CM>>,
         algo: Arc<A>,
     ) -> Result<Self, crate::error::ConfigError> {
+        let (status_tx, status_rx) = watch::channel(NodeStatus::NotStarted);
         Ok(Self {
             id,
             community,
             algo,
-            status: Arc::new(watch::channel(NodeStatus::NotStarted).0),
+            status: Arc::new(status_tx),
+            status_rx: Arc::new(tokio::sync::Mutex::new(status_rx)),
         })
     }
 
@@ -249,7 +276,12 @@ impl<T: Transport + 'static, A: Algorithm<T> + 'static> Node<T, A> {
 }
 
 #[async_trait]
-impl<T: Transport + 'static, A: Algorithm<T>> Server<T> for Node<T, A> {
+impl<T, CM, A> Server<T> for Node<T, CM, A>
+where
+    T: Transport + 'static,
+    CM: ConnectionManager<T> + 'static,
+    A: Algorithm + 'static,
+{
     async fn handle(&self, src: &T::Address, msg: Vec<u8>) -> transport::Result<Option<Vec<u8>>> {
         let peer_id = self
             .community
@@ -308,13 +340,18 @@ impl<T: Transport + 'static, A: Algorithm<T>> Server<T> for Node<T, A> {
 }
 
 #[async_trait]
-impl<T: Transport + 'static, A: Algorithm<T>> SelfTerminating for Node<T, A> {
+impl<T, CM, A> SelfTerminating for Node<T, CM, A>
+where
+    T: Transport + 'static,
+    CM: ConnectionManager<T> + 'static,
+    A: Algorithm + 'static,
+{
     async fn terminate(&self) {
         let _ = self.status.send(NodeStatus::Stopping);
     }
 
     async fn terminated(&self) -> bool {
-        let mut status_rx = self.status.subscribe();
+        let mut status_rx = self.status_rx.lock().await;
         let _ = status_rx
             .wait_for(|status| *status == NodeStatus::Terminated)
             .await;

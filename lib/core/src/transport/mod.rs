@@ -86,6 +86,14 @@ pub trait Connection<T: Transport>: Send + Sync + Clone {
 /// * `T` - The transport layer implementation
 #[async_trait]
 pub trait ConnectionManager<T: Transport>: Send + Sync {
+    /// Creates a new connection manager for the given address.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The transport layer to use for connecting
+    /// * `address` - The address of the peer to connect to
+    fn new(transport: Arc<T>, address: T::Address) -> Self;
+
     /// Sends a message and waits for a response.
     ///
     /// The connection manager will establish a connection if needed.

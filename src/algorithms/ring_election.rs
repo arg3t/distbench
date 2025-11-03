@@ -1,8 +1,7 @@
 use async_trait::async_trait;
-use framework::{self, community::PeerId, transport::Transport, Algorithm, SelfTerminating};
+use framework::{self, community::PeerId, Algorithm, SelfTerminating};
 use log::{error, info};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
 
 #[framework::message]
@@ -16,13 +15,13 @@ struct TerminationMessage {
 }
 
 #[framework::state]
-pub struct RingElection<T: Transport> {
+pub struct RingElection {
     #[framework::config]
     node_id: String,
 }
 
 #[async_trait]
-impl<T: Transport> Algorithm<T> for RingElection<T> {
+impl Algorithm for RingElection {
     async fn on_start(&self) {
         let delay = rand::thread_rng().gen_range(1.0..3.0);
         sleep(Duration::from_secs_f64(delay)).await;
@@ -51,7 +50,7 @@ impl<T: Transport> Algorithm<T> for RingElection<T> {
 }
 
 #[framework::handlers]
-impl<T: Transport> RingElection<T> {
+impl RingElection {
     async fn election(&self, src: PeerId, msg: &ElectionMessage) {
         let next_peer = self
             .peers

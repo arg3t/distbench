@@ -5,6 +5,7 @@
 
 use framework::community::{Community, PeerId};
 use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
+use framework::transport::ConnectionManager;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -43,12 +44,12 @@ use crate::config::ConfigFile;
 ///     &vec!["node2".to_string(), "node3".to_string()],
 /// );
 /// ```
-pub fn setup_offline_transport(
+pub fn setup_offline_transport<CM: ConnectionManager<ChannelTransport>>(
     config: &ConfigFile,
     builder: &ChannelTransportBuilder,
     node_id: &PeerId,
     neighbours: &[String],
-) -> Arc<Community<ChannelTransport>> {
+) -> Arc<Community<ChannelTransport, CM>> {
     let transport = builder.build(node_id.clone());
 
     // Create addresses for all peers (excluding self)

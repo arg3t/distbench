@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::community::{Community, PeerId};
 use crate::error::ConfigError;
-use crate::transport::Transport;
+use crate::transport::{ConnectionManager, Transport};
 
 /// Trait for handling incoming messages in a distributed algorithm.
 ///
@@ -85,9 +85,7 @@ pub trait SelfTerminating {
 /// }
 /// ```
 #[async_trait]
-pub trait Algorithm<T: Transport>:
-    AlgorithmHandler + Send + Sync + SelfTerminating
-{
+pub trait Algorithm: AlgorithmHandler + Send + Sync + SelfTerminating {
     /// Called when the algorithm starts running.
     ///
     /// This is invoked after all nodes in the community have synchronized
@@ -109,9 +107,9 @@ pub trait Algorithm<T: Transport>:
 /// # Type Parameters
 ///
 /// * `T` - The transport layer implementation
-pub trait AlgorithmFactory<T: Transport> {
+pub trait AlgorithmFactory<T: Transport, CM: ConnectionManager<T>> {
     /// The type of algorithm this factory produces.
-    type Algorithm: Algorithm<T>;
+    type Algorithm: Algorithm;
 
     /// Builds an algorithm instance from this configuration.
     ///
@@ -127,8 +125,5 @@ pub trait AlgorithmFactory<T: Transport> {
     ///
     /// Returns a `ConfigError` if the algorithm cannot be constructed
     /// (e.g., missing required configuration fields).
-    fn build(
-        self,
-        community: &Community<T>,
-    ) -> Result<Arc<Self::Algorithm>, ConfigError>;
+    fn build(self, community: &Community<T, CM>) -> Result<Arc<Self::Algorithm>, ConfigError>;
 }

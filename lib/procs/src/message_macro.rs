@@ -13,7 +13,8 @@ use syn::{parse_macro_input, DeriveInput};
 pub(crate) fn message_impl(item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as DeriveInput);
 
-    let new_attr_tokens = syn::parse_quote!(#[derive(Serialize, Deserialize, Clone, Debug)]);
+    let new_attr_tokens =
+        syn::parse_quote!(#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]);
     input.attrs.insert(0, new_attr_tokens);
 
     let output = quote! {
