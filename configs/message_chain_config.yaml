@@ -1,0 +1,17 @@
+node1:
+  neighbours: []
+  is_initiator: true
+  initial_value: "Hello from the message chain!"
+  max_hops: 3
+
+node2:
+  neighbours: []
+  is_initiator: false
+
+node3:
+  neighbours: []
+  is_initiator: false
+
+node4:
+  neighbours: []
+  is_initiator: false

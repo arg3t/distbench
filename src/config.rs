@@ -2,7 +2,6 @@
 //!
 //! This module handles loading and parsing YAML configuration files that define
 //! the distributed system topology and algorithm parameters.
-
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;

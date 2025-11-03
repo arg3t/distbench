@@ -122,11 +122,23 @@ async fn run_offline_mode(args: &CliArgs, config: &runner::config::ConfigFile) {
 
     for (node_id_str, node_def) in config.iter() {
         let node_id = PeerId::new(node_id_str.clone());
+
+        // If no neighbours specified, assume fully connected to all other nodes
+        let neighbours = if node_def.neighbours.is_empty() {
+            config
+                .keys()
+                .filter(|k| *k != node_id_str)
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            node_def.neighbours.clone()
+        };
+
         let community = setup_offline_transport::<ThinConnectionManager<ChannelTransport>>(
             config,
             &builder,
             &node_id,
-            &node_def.neighbours,
+            &neighbours,
         );
         let format = Arc::new(JsonFormat {});
 

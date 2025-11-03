@@ -537,11 +537,16 @@ where
                         message: "Node is still not in the Starting state".to_string(),
                     });
                 }
-                let key_store = self.community.keystore();
                 self.metrics.received(&msg);
 
                 self.algo
-                    .handle(peer_id, msg_type, msg, key_store, &self.format)
+                    .handle(
+                        peer_id,
+                        msg_type,
+                        msg,
+                        self.community.keystore(),
+                        &self.format,
+                    )
                     .await
                     .map_err(|e| TransportError::AlgorithmError {
                         message: e.to_string(),

@@ -10,6 +10,7 @@ use std::{
 
 use dashmap::DashMap;
 use log::trace;
+use serde::{Deserialize, Serialize};
 
 use crate::{crypto::PublicKey, status::NodeStatus, transport};
 
@@ -18,7 +19,7 @@ use crate::{crypto::PublicKey, status::NodeStatus, transport};
 /// `PeerId` is used to identify nodes throughout the system. It wraps a string
 /// identifier and implements the necessary traits for use as a key in collections
 /// and as a transport address.
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct PeerId(String);
 
 impl PeerId {
@@ -59,7 +60,7 @@ pub struct Community<T: transport::Transport, CM: transport::ConnectionManager<T
     peers: HashMap<T::Address, PeerId>,
     transport: Arc<T>,
     peer_status: DashMap<PeerId, NodeStatus>,
-    keys: DashMap<PeerId, PublicKey>,
+    keys: Arc<DashMap<PeerId, PublicKey>>,
 }
 
 impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Community<T, CM> {
@@ -241,8 +242,13 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
 
     pub fn keystore(&self) -> KeyStore {
         KeyStore {
-            keys: Arc::new(self.keys.clone()),
+            keys: self.keys.clone(),
         }
+    }
+
+    /// Returns the number of nodes in the community.
+    pub fn size(&self) -> usize {
+        self.peers.len()
     }
 }
 

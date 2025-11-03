@@ -27,6 +27,30 @@ pub(crate) fn generate_peer_trait_fns(handlers: &[HandlerInfo]) -> Vec<TokenStre
         .collect()
 }
 
+pub(crate) fn generate_peer_ergonomic_fns(handlers: &[HandlerInfo]) -> Vec<TokenStream2> {
+    handlers
+        .iter()
+        .map(|handler| {
+            let method_name = &handler.method_name;
+            let msg_type = &handler.msg_type;
+            let reply_type = &handler.reply_type;
+            if handler.reply_type.is_some() {
+                quote! {
+                    async fn #method_name(&self, msg: impl AsRef<#msg_type>) -> Result<#reply_type, ::distbench::PeerError> {
+                        self.0.#method_name(msg.as_ref()).await
+                    }
+                }
+            } else {
+                quote! {
+                    async fn #method_name(&self, msg: impl AsRef<#msg_type>) -> Result<(), ::distbench::PeerError> {
+                        self.0.#method_name(msg.as_ref()).await
+                    }
+                }
+            }
+        })
+        .collect()
+}
+
 /// Generates peer methods for communicating with other nodes.
 ///
 /// For each handler method, generates a corresponding method on the peer type
@@ -52,7 +76,7 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                             use ::distbench::Format;
 
                             ::log::trace!("Peer::{} - Serializing message of type {}", stringify!(#method_name), #msg_type_str);
-                            let msg_bytes = self.format.serialize(msg, &self.key, &self.id)
+                            let msg_bytes = self.format.serialize(msg)
                                 .map_err(|e| ::distbench::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
                                 })?;
@@ -86,10 +110,11 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                     quote! {
                         async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::distbench::PeerError> {
                             use ::distbench::transport::ConnectionManager;
+                            use ::distbench::signing::Verifiable;
                             use ::distbench::Format;
 
                             ::log::trace!("Peer::{} - Serializing message of type {}", stringify!(#method_name), #msg_type_str);
-                            let msg_bytes = self.format.serialize(msg, &self.key, &self.id)
+                            let msg_bytes = self.format.serialize(msg)
                                 .map_err(|e| ::distbench::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
                                 })?;
@@ -113,10 +138,12 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                                 })?;
 
                             ::log::trace!("Peer::{} - Received reply: {} bytes, deserializing", stringify!(#method_name), reply_bytes.len());
-                            let reply: #reply_type = self.format.deserialize(&reply_bytes, self.community.keystore())
+                            let reply: #reply_type = self.format.deserialize(&reply_bytes)
                                 .map_err(|e| ::distbench::PeerError::DeserializationFailed {
                                     message: format!("Failed to deserialize reply of type '{}': {}", #reply_type_str, e)
                                 })?;
+
+                            let reply = reply.verify(&self.community.keystore())?;
 
                             ::log::trace!("Peer::{} - Send/reply complete", stringify!(#method_name));
                             Ok(reply)
@@ -135,28 +162,43 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 /// # Arguments
 ///
 /// * `peer_name` - The name for the peer type
-pub(crate) fn generate_peer_struct(peer_name: &syn::Ident) -> TokenStream2 {
+pub(crate) fn generate_peer_structs(peer_name: &syn::Ident) -> TokenStream2 {
+    let inner_peer_name = syn::Ident::new(
+        &format!("{}Inner", peer_name.to_string()),
+        proc_macro2::Span::call_site(),
+    );
+
+    let peer_name_service = syn::Ident::new(
+        &format!("{}Service", peer_name.to_string()),
+        proc_macro2::Span::call_site(),
+    );
+
     quote! {
         #[derive(Clone)]
-        struct #peer_name<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> {
+        struct #inner_peer_name<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> {
             connection_manager: ::std::sync::Arc<CM>,
             format: ::std::sync::Arc<F>,
-            id: ::distbench::community::PeerId,
-            key: ::distbench::crypto::PrivateKey,
             community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
             _phantom: ::std::marker::PhantomData<T>,
         }
 
-        impl<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> #peer_name<F, T, CM> {
-            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<F>, id: ::distbench::community::PeerId, key: ::distbench::crypto::PrivateKey, community: ::std::sync::Arc<::distbench::community::Community<T, CM>>) -> Self {
+        impl<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> #inner_peer_name<F, T, CM> {
+            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<F>, community: ::std::sync::Arc<::distbench::community::Community<T, CM>>) -> Self {
                 Self {
                     connection_manager,
                     format,
-                    id,
-                    key,
                     community,
                     _phantom: ::std::marker::PhantomData,
                 }
+            }
+        }
+
+        #[derive(Clone)]
+        struct #peer_name(std::sync::Arc<Box<dyn #peer_name_service>>);
+
+        impl #peer_name {
+            pub fn new(inner: ::std::sync::Arc<Box<dyn #peer_name_service>>) -> Self {
+                Self(inner)
             }
         }
     }

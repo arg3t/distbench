@@ -35,14 +35,14 @@ impl Algorithm for ChangRoberts {
             return;
         }
 
-        if let Some((peer_id, peer)) = self.peers.iter().next() {
+        if let Some((peer_id, peer)) = self.peers().next() {
             info!(
                 "[Node {}] Starting by selecting a node: {}",
                 self.node_id, peer_id
             );
 
             match peer
-                .election(&ElectionMessage {
+                .election(ElectionMessage {
                     elector: self.node_id,
                 })
                 .await

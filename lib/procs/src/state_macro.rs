@@ -4,7 +4,7 @@
 //! implementation with configuration support and peer management.
 
 use crate::config_parsing::{extract_fields, generate_config_struct};
-use crate::peer_generation::generate_peer_struct;
+use crate::peer_generation::generate_peer_structs;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
@@ -32,10 +32,6 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
     let alg_name_str = alg_name.to_string();
     let peer_name = syn::Ident::new(
         &format!("{}Peer", alg_name_str),
-        proc_macro2::Span::call_site(),
-    );
-    let peer_name_impl = syn::Ident::new(
-        &format!("{}PeerImpl", alg_name_str),
         proc_macro2::Span::call_site(),
     );
 
@@ -67,42 +63,40 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
             }
 
             let id_field: Field = syn::parse_quote! {
-                id: ::distbench::community::PeerId
+                __id: ::distbench::community::PeerId
             };
             let key_field: Field = syn::parse_quote! {
-                key: ::distbench::crypto::PrivateKey
+                __key: ::distbench::crypto::PrivateKey
             };
-            let peers_field: Field = syn::parse_quote! {
-                peers: ::std::collections::HashMap<::distbench::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>>
+            let connections_field: Field = syn::parse_quote! {
+                __connections: ::std::collections::HashMap<::distbench::community::PeerId, #peer_name>
             };
             let stopped_field: Field = syn::parse_quote! {
                 #[allow(dead_code)]
-                stopped_tx: ::std::sync::Arc<::tokio::sync::watch::Sender<bool>>
+                __stopped_tx: ::std::sync::Arc<::tokio::sync::watch::Sender<bool>>
             };
             let status_rx_field: Field = syn::parse_quote! {
                 #[allow(dead_code)]
-                stopped_rx: ::tokio::sync::watch::Receiver<bool>
+                __stopped_rx: ::tokio::sync::watch::Receiver<bool>
+            };
+            let network_size_field: Field = syn::parse_quote! {
+                __network_size: u32
             };
             fields.named.extend(vec![
                 id_field,
                 key_field,
-                peers_field,
+                connections_field,
                 stopped_field,
                 status_rx_field,
+                network_size_field,
             ]);
         }
     }
 
     let field_inits = generate_field_initializers(&config_fields, &default_fields);
     let helper_fns = generate_helper_fns(alg_name, &peer_name);
-    let factory_impl = generate_factory_impl(
-        &config_name,
-        alg_name,
-        &peer_name,
-        &peer_name_impl,
-        &field_inits,
-    );
-    let peer_struct = generate_peer_struct(&peer_name_impl);
+    let factory_impl = generate_factory_impl(&config_name, alg_name, &peer_name, &field_inits);
+    let peer_struct = generate_peer_structs(&peer_name);
     let self_terminating_impl = generate_self_terminating_impl(alg_name);
     let named_impl = generate_named_impl(alg_name);
 
@@ -129,12 +123,29 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
 fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenStream2 {
     quote! {
         impl #alg_name {
-            fn peers(&self) -> impl Iterator<Item = (&distbench::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>)> {
-                self.peers.iter().map(|(peer_id, peer)| (peer_id, peer.clone()))
+            fn N(&self) -> u32 {
+                self.__network_size
             }
 
-            fn peer(&self, id: &distbench::community::PeerId) -> Option<std::sync::Arc<Box<dyn #peer_name>>> {
-                self.peers.get(id).cloned()
+            fn id(&self) -> &distbench::community::PeerId {
+                &self.__id
+            }
+
+            fn peers(&self) -> impl Iterator<Item = (&distbench::community::PeerId, &#peer_name)> {
+                self.__connections.iter().map(|(peer_id, peer)| (peer_id, peer))
+            }
+
+            fn peer(&self, id: &distbench::community::PeerId) -> Option<#peer_name> {
+                self.__connections.get(id).cloned()
+            }
+
+            fn sign<M>(&self, msg: M) -> ::distbench::signing::Signed<M>
+                where M: ::distbench::signing::Digest + ::serde::Serialize + for<'de> ::serde::de::Deserialize<'de>
+            {
+                let signature = self.__key.sign(&msg.digest());
+                let id = self.__id.clone();
+
+                ::distbench::signing::Signed::new(msg, signature, id)
             }
         }
     }
@@ -182,10 +193,19 @@ fn generate_factory_impl(
     config_name: &syn::Ident,
     alg_name: &syn::Ident,
     peer_name: &syn::Ident,
-    peer_name_impl: &syn::Ident,
     field_inits: &[TokenStream2],
 ) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
+    let peer_name_trait = syn::Ident::new(
+        &format!("{}Service", peer_name),
+        proc_macro2::Span::call_site(),
+    );
+
+    let peer_name_inner = syn::Ident::new(
+        &format!("{}Inner", peer_name),
+        proc_macro2::Span::call_site(),
+    );
+
     quote! {
         impl<F, T, CM> ::distbench::AlgorithmFactory<F, T, CM> for #config_name
         where
@@ -205,19 +225,16 @@ fn generate_factory_impl(
                 ::log::trace!("{}::build() - Building algorithm instance for node {:?}", #alg_name_str, id);
                 let conn_managers = community.clone().neighbours();
                 ::log::trace!("{}::build() - Creating peer proxies for {} neighbours", #alg_name_str, conn_managers.len());
-                let peers: ::std::collections::HashMap<::distbench::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>> = conn_managers
+                let connections: ::std::collections::HashMap<_, _> = conn_managers
                     .into_iter()
                     .map(|(peer_id, conn_manager)| {
                         ::log::trace!("{}::build() - Creating peer proxy for {:?}", #alg_name_str, peer_id);
-                        (peer_id, std::sync::Arc::new(
-                            Box::new(
-                                #peer_name_impl::new(
-                                    conn_manager,
-                                    format.clone(),
-                                    id.clone(),
-                                    key.clone(),
-                                    community.clone()))
-                                as Box<dyn #peer_name>))
+                        (peer_id, #peer_name::new(std::sync::Arc::new(
+                            Box::new(#peer_name_inner::new(
+                                conn_manager,
+                                format.clone(),
+                                community.clone()))
+                            as Box<dyn #peer_name_trait>)))
                     })
                     .collect();
 
@@ -227,11 +244,12 @@ fn generate_factory_impl(
                 ::log::trace!("{}::build() - Algorithm instance built successfully", #alg_name_str);
                 Ok(::std::sync::Arc::new(Self::Algorithm {
                     #(#field_inits,)*
-                    peers,
-                    stopped_tx: ::std::sync::Arc::new(stopped_tx),
-                    stopped_rx: stopped_rx,
-                    key: key,
-                    id: id,
+                    __connections: connections,
+                    __network_size: community.size() as u32,
+                    __stopped_tx: ::std::sync::Arc::new(stopped_tx),
+                    __stopped_rx: stopped_rx,
+                    __key: key,
+                    __id: id,
                 }))
             }
         }
@@ -248,12 +266,12 @@ fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
                 ::log::trace!("{}.terminate() - Sending termination signal", #alg_name_str);
                 // Send 'true' to signal stopped.
                 // Ignore result: Err means all receivers dropped.
-                let _ = self.stopped_tx.send(true);
+                let _ = self.__stopped_tx.send(true);
                 ::log::trace!("{}.terminate() - Termination signal sent", #alg_name_str);
             }
 
             async fn terminated(&self) -> bool {
-                let mut rx = self.stopped_rx.clone();
+                let mut rx = self.__stopped_rx.clone();
                 // wait_for checks current value, and if not true,
                 // awaits until the predicate (*stopped) is true.
                 // Err means sender was dropped, which is fine.

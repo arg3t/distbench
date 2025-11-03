@@ -414,19 +414,289 @@ async fn on_start(&self) {
 
 This triggers graceful shutdown coordination with other nodes.
 
-## Testing
+## Algorithm API Reference
 
-Run the test suite:
+This section documents the methods and features available to algorithm implementations.
 
-```bash
-cargo test
+### Methods Available in `#[distbench::state]` Structs
+
+When you define an algorithm using `#[distbench::state]`, your struct automatically gets access to several useful methods:
+
+#### `self.id() -> &PeerId`
+
+Returns the unique identifier of the current node.
+
+```rust
+async fn on_start(&self) {
+    info!("Node {} starting", self.id());
+}
 ```
 
-Run a specific test:
+#### `self.N() -> u32`
 
-```bash
-cargo test test_name
+Returns the total number of nodes in the system (including this node).
+
+```rust
+async fn on_start(&self) {
+    let total_nodes = self.N();
+    info!("Running in a system of {} nodes", total_nodes);
+
+    // Useful for threshold calculations
+    let majority = (total_nodes / 2) + 1;
+    let byzantine_threshold = (total_nodes * 2 + 2) / 3;
+}
 ```
+
+#### `self.peers() -> impl Iterator<Item = (&PeerId, &Peer)>`
+
+Returns an iterator over all neighboring peers.
+
+```rust
+async fn on_start(&self) {
+    // Iterate over all peers
+    for (peer_id, peer) in self.peers() {
+        info!("Neighbor: {}", peer_id);
+        peer.some_message(&msg).await?;
+    }
+
+    // Count peers
+    let peer_count = self.peers().count();
+
+    // Get first peer
+    if let Some((id, peer)) = self.peers().next() {
+        peer.ping(&Ping { seq: 0 }).await?;
+    }
+}
+```
+
+#### `self.terminate() -> impl Future<Output = ()>`
+
+Signals that this node has completed its algorithm execution and is ready to terminate.
+
+```rust
+async fn handler(&self, src: PeerId, msg: &Done) {
+    info!("Received done message, terminating");
+    self.terminate().await;
+}
+```
+
+**Important**: This only signals readiness to terminate. The node will continue running until:
+
+- The timeout expires, OR
+- All nodes have called `terminate()`
+
+#### `self.sign<M: Digest>(value: M) -> Signed<M>`
+
+Creates a cryptographically signed version of a message. The signature proves that this specific node created the message.
+
+```rust
+async fn on_start(&self) {
+    // Create a signed message
+    let signed_msg = self.sign(VoteMessage {
+        round: 1,
+        value: "commit".to_string(),
+    });
+
+    // Send the signed message
+    for (_, peer) in self.peers() {
+        peer.vote(&signed_msg).await?;
+    }
+}
+```
+
+### Signed Messages
+
+The `Signed<M>` type wraps a message with cryptographic authentication. This is essential for Byzantine fault-tolerant algorithms where nodes need to prove message authenticity.
+
+#### Creating Signed Messages
+
+Use `self.sign()` to create signed messages:
+
+```rust
+// Define a message type
+#[distbench::message]
+struct Proposal {
+    round: u32,
+    value: String,
+}
+
+// Sign it
+let signed_proposal = self.sign(Proposal {
+    round: 1,
+    value: "commit".to_string(),
+});
+```
+
+#### Accessing Signed Message Content
+
+`Signed<M>` implements `Deref`, so you can access the inner message directly:
+
+```rust
+async fn handle_proposal(&self, src: PeerId, msg: &Signed<Proposal>) {
+    // Access fields directly via Deref
+    info!("Received proposal for round {}: {}", msg.round, msg.value);
+
+    // Or explicitly use inner()
+    info!("Value: {}", msg.inner().value);
+}
+```
+
+#### Display Implementation
+
+`Signed<M>` has a special `Display` implementation that shows both the message and the signer:
+
+```rust
+async fn handle_vote(&self, src: PeerId, msg: &Signed<Vote>) {
+    // When Display is implemented for Vote, this will print:
+    // "Vote for value X (signed by node1)"
+    info!("Received: {}", msg);
+}
+```
+
+#### Signed Messages in Collections
+
+You can store signed messages in vectors, sets, and maps:
+
+```rust
+#[distbench::state]
+pub struct ByzantineConsensus {
+    // Vector of signed proposals
+    proposals: Mutex<Vec<Signed<Proposal>>>,
+
+    // Map from value to set of signed votes
+    votes: Mutex<HashMap<String, Vec<Signed<Vote>>>>,
+}
+
+#[distbench::handlers]
+impl ByzantineConsensus {
+    async fn receive_proposal(&self, src: PeerId, msg: &Signed<Proposal>) {
+        // Store the signed proposal
+        let mut proposals = self.proposals.lock().unwrap();
+        proposals.push(msg.clone());
+
+        // Log all proposals with their signers
+        for (i, signed_prop) in proposals.iter().enumerate() {
+            info!("[{}] Proposal {}: {}", self.id(), i, signed_prop);
+        }
+    }
+
+    async fn receive_vote(&self, src: PeerId, msg: &Signed<Vote>) {
+        // Collect votes by value
+        let mut votes = self.votes.lock().unwrap();
+        votes.entry(msg.value.clone())
+            .or_insert_with(Vec::new)
+            .push(msg.clone());
+
+        // Check if we have enough signed votes
+        let vote_count = votes[&msg.value].len();
+        let threshold = (self.N() as usize * 2) / 3;
+        if vote_count >= threshold {
+            info!("Received {} signed votes for value {}", vote_count, msg.value);
+        }
+    }
+}
+```
+
+#### Complete Example: Message Chain with Signatures
+
+This example shows how signed messages preserve the identity of each node that handled them:
+
+```rust
+use distbench::signing::Signed;
+
+// Each hop in the chain is signed by the node that created it
+#[distbench::message]
+struct ChainHop {
+    hop_number: u32,
+    node_name: String,
+    original_value: String,
+}
+
+// Bundle containing multiple signed messages
+#[distbench::message]
+struct ChainBundle {
+    chain: Vec<Signed<ChainHop>>,
+}
+
+#[distbench::state]
+pub struct MessageChain {
+    #[distbench::config(default = false)]
+    is_initiator: bool,
+}
+
+#[async_trait]
+impl Algorithm for MessageChain {
+    async fn on_start(&self) {
+        if self.is_initiator {
+            // Create and sign the first hop
+            let hop = self.sign(ChainHop {
+                hop_number: 0,
+                node_name: self.id().to_string(),
+                original_value: "Hello".to_string(),
+            });
+
+            // Display shows: "ChainHop #0 (signed by node1)"
+            info!("Created: {}", hop);
+
+            // Send chain with single signed message
+            for (_, peer) in self.peers() {
+                peer.forward_chain(&ChainBundle {
+                    chain: vec![hop.clone()],
+                }).await?;
+            }
+        }
+    }
+}
+
+#[distbench::handlers]
+impl MessageChain {
+    async fn forward_chain(&self, src: PeerId, bundle: &ChainBundle) {
+        // Log all signed messages in the chain
+        info!("Received chain with {} hops:", bundle.chain.len());
+        for signed_hop in &bundle.chain {
+            // Each displays with its signer
+            info!("  {}", signed_hop);
+        }
+
+        // Add our signed hop
+        let our_hop = self.sign(ChainHop {
+            hop_number: bundle.chain.len() as u32,
+            node_name: self.id().to_string(),
+            original_value: bundle.chain[0].original_value.clone(),
+        });
+
+        // Create extended chain
+        let mut new_chain = bundle.chain.clone();
+        new_chain.push(our_hop);
+
+        // Forward to others
+        for (peer_id, peer) in self.peers() {
+            if *peer_id != src {
+                peer.forward_chain(&ChainBundle {
+                    chain: new_chain.clone(),
+                }).await?;
+            }
+        }
+    }
+}
+```
+
+### When to Use Signed vs. Unsigned Messages
+
+**Use unsigned messages** (without `Signed<>`) when:
+
+- Messages are simple data transfers
+- The `src: PeerId` parameter provides sufficient sender identification
+- You trust the network layer (no Byzantine faults)
+- Examples: Echo, simple broadcasts, ring algorithms
+
+**Use signed messages** (`Signed<M>`) when:
+
+- Implementing Byzantine fault-tolerant algorithms
+- Messages need to be verified by multiple nodes
+- Messages are forwarded through untrusted intermediaries
+- You need non-repudiation (proof of who sent what)
+- Examples: PBFT, Byzantine broadcast, consensus algorithms
 
 ## Architecture
 
@@ -451,7 +721,7 @@ When implementing new algorithms:
 
 ## License
 
-[Specify your license here]
+[MIT LICENSE](./LICENSE)
 
 ## Troubleshooting
 

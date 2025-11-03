@@ -1,7 +1,6 @@
 //! Bincode serialization format implementation.
 
 use super::{Format, FormatError};
-use crate::{community::KeyStore, crypto::PrivateKey, PeerId};
 use serde::{Deserialize, Serialize};
 
 /// Bincode serialization format.
@@ -12,21 +11,12 @@ use serde::{Deserialize, Serialize};
 pub struct BincodeFormat;
 
 impl Format for BincodeFormat {
-    fn serialize<T: Serialize>(
-        &self,
-        value: &T,
-        _key: &PrivateKey,
-        _id: &PeerId,
-    ) -> Result<Vec<u8>, FormatError> {
+    fn serialize<T: Serialize>(&self, value: &T) -> Result<Vec<u8>, FormatError> {
         let result = bincode::serialize(value).map_err(FormatError::BincodeSerialization)?;
         Ok(result)
     }
 
-    fn deserialize<'de, T: Deserialize<'de>>(
-        &self,
-        bytes: &'de [u8],
-        _keystore: KeyStore,
-    ) -> Result<T, FormatError> {
+    fn deserialize<'de, T: Deserialize<'de>>(&self, bytes: &'de [u8]) -> Result<T, FormatError> {
         let result = bincode::deserialize(bytes).map_err(FormatError::BincodeDeserialization)?;
         Ok(result)
     }

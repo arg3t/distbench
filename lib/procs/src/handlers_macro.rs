@@ -4,7 +4,9 @@
 //! method implementations from handler methods.
 
 use crate::handler_parsing::{extract_all_handlers, generate_algorithm_handler_impl};
-use crate::peer_generation::{generate_peer_methods, generate_peer_trait_fns};
+use crate::peer_generation::{
+    generate_peer_ergonomic_fns, generate_peer_methods, generate_peer_trait_fns,
+};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{ItemImpl, Type};
@@ -47,8 +49,13 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
         proc_macro2::Span::call_site(),
     );
 
-    let peer_name_impl = syn::Ident::new(
-        &format!("{}PeerImpl", base_ident),
+    let peer_name_inner = syn::Ident::new(
+        &format!("{}Inner", peer_name),
+        proc_macro2::Span::call_site(),
+    );
+
+    let peer_name_service = syn::Ident::new(
+        &format!("{}Service", peer_name),
         proc_macro2::Span::call_site(),
     );
 
@@ -62,11 +69,12 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
 
     let algorithm_handler_impl = generate_algorithm_handler_impl(&base_ident, &handlers);
     let peer_methods = generate_peer_methods(&handlers);
+    let peer_methods_ergonomic = generate_peer_ergonomic_fns(&handlers);
     let peer_trait_fns = generate_peer_trait_fns(&handlers);
 
     let peer_trait_impl = quote! {
         #[async_trait::async_trait]
-        trait #peer_name: Send + Sync {
+        trait #peer_name_service: Send + Sync {
             #(#peer_trait_fns)*
         }
     };
@@ -74,8 +82,20 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
     // Generate only the impl block for Peer methods, not the struct itself
     let peer_methods_impl = quote! {
         #[async_trait::async_trait]
-        impl<F: ::distbench::Format, T: ::distbench::transport::Transport, CM: ::distbench::transport::ConnectionManager<T>> #peer_name for #peer_name_impl<F, T, CM> {
+        impl<F, T, CM> #peer_name_service for #peer_name_inner<F, T, CM>
+            where
+            F: ::distbench::Format,
+            T: ::distbench::transport::Transport,
+            CM: ::distbench::transport::ConnectionManager<T>
+        {
             #(#peer_methods)*
+        }
+    };
+
+    let peer_methods_ergonomic_impl = quote! {
+        impl #peer_name
+        {
+            #(#peer_methods_ergonomic)*
         }
     };
 
@@ -84,6 +104,8 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
         #input
 
         #algorithm_handler_impl
+
+        #peer_methods_ergonomic_impl
 
         #peer_trait_impl
 

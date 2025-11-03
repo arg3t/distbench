@@ -129,7 +129,7 @@ pub(crate) fn generate_algorithm_handler_impl(
                     let reply: #reply_type = #base_call;
 
                     ::log::trace!("AlgorithmHandler::handle - Serializing reply of type {}", #reply_type_str);
-                    let reply_bytes = format.serialize(&reply, &self.key, &self.id)
+                    let reply_bytes = format.serialize(&reply)
                         .map_err(|e| ::distbench::PeerError::SerializationFailed {
                             message: format!("Failed to serialize reply of type '{}': {}", #reply_type_str, e)
                         })?;
@@ -143,10 +143,11 @@ pub(crate) fn generate_algorithm_handler_impl(
         handle_arms.push(quote! {
             if msg_type_id == #msg_type_str {
                 ::log::trace!("AlgorithmHandler::handle - Deserializing message of type {} from {:?}", #msg_type_str, src);
-                let msg = format.deserialize::<#msg_type>(&msg_bytes, keystore)
+                let msg = format.deserialize::<#msg_type>(&msg_bytes)
                     .map_err(|e| ::distbench::PeerError::DeserializationFailed {
                         message: format!("Failed to deserialize message of type '{}' from {:?}: {}", #msg_type_str, src, e)
                     })?;
+                let msg = msg.verify(&keystore)?;
 
                 #call_expr
             }
@@ -165,6 +166,7 @@ pub(crate) fn generate_algorithm_handler_impl(
                 format: &F,
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 use ::distbench::Format;
+                use ::distbench::signing::Verifiable;
 
                 #(#handle_arms)*
 

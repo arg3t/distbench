@@ -7,7 +7,7 @@ use std::{
 
 use async_trait::async_trait;
 use common_macros::hash_map;
-use distbench::{self, community::PeerId, Algorithm, SelfTerminating};
+use distbench::{self, community::PeerId, signing::Signed, Algorithm, SelfTerminating};
 use log::{error, info};
 
 #[distbench::message]
@@ -30,14 +30,13 @@ impl Algorithm for Echo {
         if self.start_node {
             for (_, peer) in self.peers() {
                 match peer
-                    .message(&Message {
+                    .message(self.sign(Message {
                         sender: "Test".to_string(),
                         message: "Hello, world!".to_string(),
-                    })
+                    }))
                     .await
                 {
-                    Ok(Some(message)) => info!("Message echoed: {}", message),
-                    Ok(None) => error!("Message not echoed"),
+                    Ok(message) => info!("Message echoed back: {}", message),
                     Err(e) => error!("Error echoing message: {}", e),
                 }
             }
@@ -59,9 +58,9 @@ impl Algorithm for Echo {
 
 #[distbench::handlers]
 impl Echo {
-    async fn message(&self, src: PeerId, msg: &Message) -> Option<String> {
+    async fn message(&self, src: PeerId, msg: &Signed<Message>) -> Signed<String> {
         info!("Received message from {}: {}", src.to_string(), msg.message);
         self.messages_received.fetch_add(1, Ordering::Relaxed);
-        Some(msg.message.clone())
+        self.sign(msg.message.clone())
     }
 }

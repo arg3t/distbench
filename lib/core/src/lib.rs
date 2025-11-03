@@ -26,6 +26,7 @@
 //! let node = Node::new(peer_id, Arc::new(community), Arc::new(algorithm), Arc::new(JsonFormat))?;
 //! node.start(stop_signal).await?;
 //! ```
+//!
 
 pub mod algorithm;
 pub mod community;
@@ -35,6 +36,7 @@ pub mod error;
 pub mod managers;
 pub mod messages;
 pub mod node;
+pub mod signing;
 pub mod status;
 pub mod transport;
 

@@ -38,6 +38,14 @@ pub enum PeerError {
     /// message handler.
     #[error("Unknown message type: {message}")]
     UnknownMessageType { message: String },
+
+    /// The peer is unknown.
+    #[error("Unknown peer: {peer_id}")]
+    UnknownPeer { peer_id: String },
+
+    /// The signature is invalid.
+    #[error("Invalid signature: {peer_id}")]
+    InvalidSignature { peer_id: String },
 }
 
 /// Errors that can occur during algorithm configuration.
