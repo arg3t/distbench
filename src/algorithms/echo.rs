@@ -21,18 +21,18 @@ impl Algorithm for Echo {
     async fn on_start(&self) {
         info!("Echo algorithm starting");
         if self.start_node {
-            let peer = self.peers.values().next().unwrap();
-
-            match peer
-                .message(&Message {
-                    sender: "Test".to_string(),
-                    message: "Hello, world!".to_string(),
-                })
-                .await
-            {
-                Ok(Some(message)) => info!("Message echoed: {}", message),
-                Ok(None) => error!("Message not echoed"),
-                Err(e) => error!("Error echoing message: {}", e),
+            for peer in self.peers.values() {
+                match peer
+                    .message(&Message {
+                        sender: "Test".to_string(),
+                        message: "Hello, world!".to_string(),
+                    })
+                    .await
+                {
+                    Ok(Some(message)) => info!("Message echoed: {}", message),
+                    Ok(None) => error!("Message not echoed"),
+                    Err(e) => error!("Error echoing message: {}", e),
+                }
             }
         }
         tokio::time::sleep(Duration::from_secs(1)).await;

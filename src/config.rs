@@ -14,6 +14,8 @@ use std::path::Path;
 pub struct NodeDefinition {
     /// IDs of neighboring nodes this node can communicate with
     pub neighbours: Vec<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
 
     /// Algorithm-specific configuration (flattened into this struct)
     #[serde(flatten)]

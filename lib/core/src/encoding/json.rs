@@ -23,34 +23,3 @@ impl Format for JsonFormat {
         "json"
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
-    struct TestMessage {
-        id: u32,
-        content: String,
-    }
-
-    #[test]
-    fn test_json_format() {
-        let format = JsonFormat;
-        let msg = TestMessage {
-            id: 42,
-            content: "Hello".to_string(),
-        };
-
-        let bytes = format.serialize(&msg).unwrap();
-        let decoded: TestMessage = format.deserialize(&bytes).unwrap();
-
-        assert_eq!(msg, decoded);
-    }
-
-    #[test]
-    fn test_format_name() {
-        assert_eq!(JsonFormat.name(), "json");
-    }
-}

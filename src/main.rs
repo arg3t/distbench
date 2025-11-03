@@ -7,7 +7,6 @@ use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
 use framework::transport::ThinConnectionManager;
 use framework::JsonFormat;
 use log::{error, info};
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -16,7 +15,7 @@ use tokio::sync::Notify;
 
 /// Command-line arguments for the distributed algorithms benchmark.
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Distributed Systems Framework")]
+#[command(author, version, about = "Distributed Systems Workbench")]
 struct CliArgs {
     /// Path to the YAML configuration file
     #[arg(short, long, value_name = "FILE", required = true)]
@@ -34,13 +33,9 @@ struct CliArgs {
     #[arg(short, long, value_enum, default_value_t = Mode::Offline)]
     mode: Mode,
 
-    /// Base IP address for Docker mode (e.g., 10.5.0.0)
-    #[arg(long)]
-    base_ip: Option<IpAddr>,
-
-    /// Base port for auto-spawned nodes in Local mode
-    #[arg(long, default_value_t = 8000)]
-    base_port: u16,
+    /// Serialization format
+    #[arg(long, value_enum, default_value_t = FormatType::Json)]
+    format: FormatType,
 
     /// Timeout for the algorithm to run in seconds
     #[arg(long, default_value_t = 10)]
@@ -54,12 +49,16 @@ struct CliArgs {
 /// Execution mode for the distributed system.
 #[derive(ValueEnum, Clone, Debug, PartialEq)]
 enum Mode {
-    /// Local mode (spawns a process listening on varying ports)
-    Local,
-    /// Docker mode (spawns a process listening on varying ips)
-    Docker,
+    /// Network mode (spawns a process listening on specific IP/port)
+    Network,
     /// Offline mode (spawns threads, uses tokio channels)
     Offline,
+}
+
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
+enum FormatType {
+    Json,
+    Bincode,
 }
 
 include!(concat!(env!("OUT_DIR"), "/registry.rs"));

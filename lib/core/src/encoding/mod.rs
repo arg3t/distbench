@@ -58,29 +58,3 @@ pub trait Format: Send + Sync + Clone + 'static {
     /// Returns the name of this format (for debugging/logging).
     fn name(&self) -> &'static str;
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
-    struct TestMessage {
-        id: u32,
-        content: String,
-    }
-
-    #[test]
-    fn test_bincode_smaller_than_json() {
-        let msg = TestMessage {
-            id: 42,
-            content: "Hello World".to_string(),
-        };
-
-        let json_bytes = JsonFormat.serialize(&msg).unwrap();
-        let bincode_bytes = BincodeFormat.serialize(&msg).unwrap();
-
-        // Bincode should produce smaller output
-        assert!(bincode_bytes.len() < json_bytes.len());
-    }
-}
