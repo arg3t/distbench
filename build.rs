@@ -100,7 +100,7 @@ macro_rules! start_node {{
             r#"
             "{struct_name}" => {{
                 use futures::FutureExt;
-                use cs4545::algorithms::{mod_name}::{{{struct_name}Config}};
+                use distbench::algorithms::{mod_name}::{{{struct_name}Config}};
                 use ::framework::AlgorithmFactory;
 
                 let config: {struct_name}Config = serde_json::from_value($alg_config.clone())

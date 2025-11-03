@@ -5,13 +5,13 @@ members = [
 ]
 
 [package]
-name = "distributed-algorithms-workbench"
+name = "distbench"
 authors = ["Yigit Colakoglu <root@yigit.run>"]
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "cs4545"
+name = "distbench"
 path = "src/lib.rs"
 
 [dependencies]
