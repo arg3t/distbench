@@ -117,19 +117,24 @@ pub(crate) fn generate_algorithm_handler_impl(
         // Handle reply logic
         let call_expr = match &handler.reply_type {
             None => quote! {
+                ::log::trace!("AlgorithmHandler::handle - Calling handler {} (cast)", #msg_type_str);
                 #base_call;
+                ::log::trace!("AlgorithmHandler::handle - Handler {} completed", #msg_type_str);
                 return Ok(None); // Empty response for cast messages
             },
             Some(reply_type) => {
                 let reply_type_str = quote!(#reply_type).to_string().replace(" ", "");
                 quote! {
+                    ::log::trace!("AlgorithmHandler::handle - Calling handler {} (send/reply)", #msg_type_str);
                     let reply: #reply_type = #base_call;
 
-                    let reply_bytes = format.serialize(&reply)
+                    ::log::trace!("AlgorithmHandler::handle - Serializing reply of type {}", #reply_type_str);
+                    let reply_bytes = format.serialize(&reply, &self.key, &self.id)
                         .map_err(|e| ::framework::PeerError::SerializationFailed {
                             message: format!("Failed to serialize reply of type '{}': {}", #reply_type_str, e)
                         })?;
 
+                    ::log::trace!("AlgorithmHandler::handle - Handler {} completed, reply: {} bytes", #msg_type_str, reply_bytes.len());
                     return Ok(Some(reply_bytes));
                 }
             }
@@ -137,7 +142,8 @@ pub(crate) fn generate_algorithm_handler_impl(
 
         handle_arms.push(quote! {
             if msg_type_id == #msg_type_str {
-                let msg = format.deserialize::<#msg_type>(&msg_bytes)
+                ::log::trace!("AlgorithmHandler::handle - Deserializing message of type {} from {:?}", #msg_type_str, src);
+                let msg = format.deserialize::<#msg_type>(&msg_bytes, keystore)
                     .map_err(|e| ::framework::PeerError::DeserializationFailed {
                         message: format!("Failed to deserialize message of type '{}' from {:?}: {}", #msg_type_str, src, e)
                     })?;
@@ -155,6 +161,7 @@ pub(crate) fn generate_algorithm_handler_impl(
                 src: ::framework::community::PeerId,
                 msg_type_id: String,
                 msg_bytes: Vec<u8>,
+                keystore: ::framework::community::KeyStore,
                 format: &F,
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 use ::framework::Format;

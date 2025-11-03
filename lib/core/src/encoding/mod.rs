@@ -32,6 +32,8 @@ pub use bincode::BincodeFormat;
 pub use error::FormatError;
 pub use json::JsonFormat;
 
+use crate::{community::KeyStore, crypto::PrivateKey, PeerId};
+
 /// Trait for serialization formats.
 ///
 /// This trait abstracts over different serialization formats, allowing the framework
@@ -46,14 +48,23 @@ pub trait Format: Send + Sync + Clone + 'static {
     /// # Errors
     ///
     /// Returns an error if serialization fails.
-    fn serialize<T: Serialize>(&self, value: &T) -> Result<Vec<u8>, FormatError>;
+    fn serialize<T: Serialize>(
+        &self,
+        value: &T,
+        key: &PrivateKey,
+        peer_id: &PeerId,
+    ) -> Result<Vec<u8>, FormatError>;
 
     /// Deserialize bytes to a value.
     ///
     /// # Errors
     ///
     /// Returns an error if deserialization fails.
-    fn deserialize<'de, T: Deserialize<'de>>(&self, bytes: &'de [u8]) -> Result<T, FormatError>;
+    fn deserialize<'de, T: Deserialize<'de>>(
+        &self,
+        bytes: &'de [u8],
+        keystore: KeyStore,
+    ) -> Result<T, FormatError>;
 
     /// Returns the name of this format (for debugging/logging).
     fn name(&self) -> &'static str;

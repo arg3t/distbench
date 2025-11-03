@@ -4,9 +4,12 @@
 //! to work with the framework.
 
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::sync::Arc;
 
-use crate::community::{Community, PeerId};
+use crate::community::{Community, KeyStore, PeerId};
+use crate::crypto::PrivateKey;
 use crate::encoding::Format;
 use crate::error::ConfigError;
 use crate::transport::{ConnectionManager, Transport};
@@ -40,6 +43,7 @@ pub trait AlgorithmHandler<F: Format> {
         src: PeerId,
         msg_type_id: String,
         msg_bytes: Vec<u8>,
+        keystore: KeyStore,
         format: &F,
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 }
@@ -59,6 +63,14 @@ pub trait SelfTerminating {
     ///
     /// `true` if the algorithm has terminated, otherwise waits for termination.
     async fn terminated(&self) -> bool;
+}
+
+/// Trait for algorithms that have a name.
+///
+/// Algorithms implement this trait to provide a name for themselves.
+pub trait Named {
+    /// Returns the name of the algorithm.
+    fn name(&self) -> &str;
 }
 
 /// The main trait that distributed algorithms must implement.
@@ -87,7 +99,7 @@ pub trait SelfTerminating {
 /// }
 /// ```
 #[async_trait]
-pub trait Algorithm: Send + Sync + SelfTerminating {
+pub trait Algorithm: Send + Sync + SelfTerminating + Named {
     /// Called when the algorithm starts running.
     ///
     /// This is invoked after all nodes in the community have synchronized
@@ -99,6 +111,18 @@ pub trait Algorithm: Send + Sync + SelfTerminating {
     /// This is invoked after the algorithm has terminated and the node
     /// is shutting down. Use this for cleanup operations.
     async fn on_exit(&self) {}
+
+    /// Called in the end of the algorithm to get a final report.
+    ///
+    /// This is invoked after the algorithm has terminated and the node
+    /// has shut down. Use this for reporting any final metrics or information.
+    ///
+    /// # Returns
+    ///
+    /// An optional `HashMap` of key-value pairs representing the report.
+    async fn report(&self) -> Option<HashMap<impl Display, impl Display>> {
+        None::<HashMap<&str, &str>>
+    }
 }
 
 /// Factory trait for creating algorithm instances.
@@ -131,6 +155,8 @@ pub trait AlgorithmFactory<F: Format, T: Transport, CM: ConnectionManager<T>> {
     fn build(
         self,
         format: Arc<F>,
-        community: &Community<T, CM>,
+        key: PrivateKey,
+        id: PeerId,
+        community: Arc<Community<T, CM>>,
     ) -> Result<Arc<Self::Algorithm>, ConfigError>;
 }

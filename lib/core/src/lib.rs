@@ -29,6 +29,7 @@
 
 pub mod algorithm;
 pub mod community;
+pub mod crypto;
 pub mod encoding;
 pub mod error;
 pub mod managers;

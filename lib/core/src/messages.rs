@@ -19,7 +19,7 @@ pub enum NodeMessage {
     Finished,
 
     /// Requests the public key from a peer.
-    GetPubKey,
+    AnnouncePubKey([u8; 32]),
 
     /// An algorithm-specific message.
     ///

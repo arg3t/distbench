@@ -46,10 +46,10 @@ pub fn init_logger(verbose: u8) {
             };
 
             let node_id = framework::get_node_context()
-                .map(|id| Cyan.paint(format!("[{}]", id)).to_string())
+                .map(|id| Cyan.paint(format!("[{}] ", id)).to_string())
                 .unwrap_or_default();
 
-            writeln!(buf, "{ts} {node_id} {level_str}: {}", record.args())
+            writeln!(buf, "{ts} {node_id}{level_str}: {}", record.args())
         })
         .init();
 }

@@ -7,6 +7,8 @@ use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
 use framework::transport::ThinConnectionManager;
 use framework::JsonFormat;
 use log::{error, info};
+use std::fs::{create_dir_all, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -44,6 +46,10 @@ struct CliArgs {
     /// Verbosity level (can be repeated: -v, -vv, -vvv)
     #[arg(short, long, action = clap::ArgAction::Count, default_value_t = 0)]
     verbose: u8,
+
+    /// Report folder path
+    #[arg(long)]
+    report_folder: Option<PathBuf>,
 }
 
 /// Execution mode for the distributed system.
@@ -76,6 +82,17 @@ async fn main() {
             process::exit(1);
         }
     };
+
+    if let Some(folder) = &args.report_folder {
+        if let Err(e) = create_dir_all(folder) {
+            error!(
+                "Failed to create report directory {:?}: {}. Reports will be printed to console.",
+                folder, e
+            );
+        } else {
+            info!("Reports will be saved to {:?}", folder);
+        }
+    }
 
     match (&args.id, &args.mode) {
         (_, Mode::Offline) => {
@@ -130,14 +147,57 @@ async fn run_offline_mode(args: &CliArgs, config: &distbench::config::ConfigFile
         args.timeout
     );
 
-    tokio::select! {
+    let join_all_fut = futures::future::join_all(handles);
+    tokio::pin!(join_all_fut);
+
+    let results = tokio::select! {
         _ = tokio::time::sleep(Duration::from_secs(args.timeout)) => {
             info!("Timeout reached. Sending stop signal");
             stop_signal.notify_waiters();
+            join_all_fut.await
         },
-        _ = futures::future::join_all(handles) => {
+        results = &mut join_all_fut => {
             tokio::time::sleep(Duration::from_millis(10)).await;
             info!("All nodes finished");
+            results
+        }
+    };
+
+    for (peer_id, result) in results {
+        if result.is_err() {
+            error!("Error joining node {}: {}", peer_id, result.err().unwrap());
+            continue;
+        }
+
+        let report = match result.unwrap() {
+            Ok(report) => report,
+            Err(e) => {
+                error!("Node {} returned error: {}", peer_id, e);
+                continue;
+            }
+        };
+
+        if let Some(folder) = &args.report_folder {
+            let file_path = folder.join(format!("{}.json", peer_id));
+            let line = format!("{}\n", report);
+
+            match OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&file_path)
+            {
+                Ok(mut f) => {
+                    if let Err(e) = f.write_all(line.as_bytes()) {
+                        error!("Failed to write report for {}: {}", peer_id, e);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to open report file for {}: {}", peer_id, e);
+                }
+            }
+        } else {
+            // No report folder, just print to info log
+            info!("Report for {}: {}", peer_id, report);
         }
     }
 }

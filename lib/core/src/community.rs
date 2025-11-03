@@ -8,12 +8,10 @@ use std::{
     sync::Arc,
 };
 
-use tokio::sync::RwLock;
+use dashmap::DashMap;
+use log::trace;
 
-use crate::{status::NodeStatus, transport};
-
-/// A public key for cryptographic operations.
-pub type PublicKey = Vec<u8>;
+use crate::{crypto::PublicKey, status::NodeStatus, transport};
 
 /// Unique identifier for a peer in the distributed system.
 ///
@@ -60,8 +58,8 @@ pub struct Community<T: transport::Transport, CM: transport::ConnectionManager<T
     connections: HashMap<PeerId, Arc<CM>>,
     peers: HashMap<T::Address, PeerId>,
     transport: Arc<T>,
-    peer_status: RwLock<HashMap<PeerId, NodeStatus>>,
-    keys: RwLock<HashMap<PeerId, PublicKey>>,
+    peer_status: DashMap<PeerId, NodeStatus>,
+    keys: DashMap<PeerId, PublicKey>,
 }
 
 impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Community<T, CM> {
@@ -81,9 +79,20 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
         peer_addresses: HashMap<PeerId, T::Address>,
         transport: Arc<T>,
     ) -> Self {
+        trace!(
+            "Community::new - Creating community with {} neighbours, {} total peers",
+            neighbours.len(),
+            peer_addresses.len()
+        );
+
         let connections: HashMap<PeerId, Arc<CM>> = peer_addresses
             .iter()
             .map(|(id, addr)| {
+                trace!(
+                    "Community::new - Creating connection manager for peer {} at {}",
+                    id.to_string(),
+                    addr
+                );
                 let conn_manager: Arc<CM> = Arc::new(CM::new(transport.clone(), addr.clone()));
                 (id.clone(), conn_manager)
             })
@@ -94,13 +103,14 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
             .map(|(id, addr)| (addr.clone(), id.clone()))
             .collect();
 
+        trace!("Community::new - Community initialized");
         Self {
             neighbours,
             connections,
             peers,
             transport,
             keys: Default::default(),
-            peer_status: RwLock::new(HashMap::new()),
+            peer_status: Default::default(),
         }
     }
 
@@ -110,9 +120,13 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
     ///
     /// * `id` - The ID of the peer whose status to update
     /// * `status` - The new status for the peer
-    pub async fn set_status(&self, id: PeerId, status: NodeStatus) {
-        let mut peer_status = self.peer_status.write().await;
-        peer_status.insert(id, status);
+    pub fn set_status(&self, id: PeerId, status: NodeStatus) {
+        trace!(
+            "Community::set_status - Setting peer {} status to {:?}",
+            id.to_string(),
+            status
+        );
+        self.peer_status.insert(id, status);
     }
 
     /// Returns the current status of all known peers.
@@ -121,11 +135,10 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
     ///
     /// A map from peer IDs to their current status. Peers with no recorded
     /// status will have the default status.
-    pub async fn statuses(&self) -> HashMap<PeerId, NodeStatus> {
-        let peer_status = self.peer_status.read().await;
-        self.peers
+    pub fn statuses(&self) -> HashMap<PeerId, NodeStatus> {
+        self.peer_status
             .iter()
-            .map(|(_addr, id)| (id.clone(), peer_status.get(id).cloned().unwrap_or_default()))
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect()
     }
 
@@ -164,6 +177,28 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
         self.connections.get(id).cloned()
     }
 
+    /// Check if we have all the public keys for all peers.
+    ///
+    /// # Returns
+    ///
+    /// `true` if we have all the public keys for all peers, `false` otherwise.
+    pub fn keystore_full(&self) -> bool {
+        self.peers.values().all(|id| self.keys.contains_key(id))
+    }
+
+    /// Checks if a peer is a neighbour.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the peer to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the peer is a neighbour, `false` otherwise.
+    pub fn is_neighbour(&self, id: &PeerId) -> bool {
+        self.neighbours.contains(id)
+    }
+
     /// Returns connection managers for all neighbor peers.
     ///
     /// # Returns
@@ -185,16 +220,42 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
         self.transport.clone()
     }
 
-    /// Retrieves the public key for a peer, if available.
+    /// Sets the public key for a peer.
     ///
     /// # Arguments
     ///
-    /// * `id` - The ID of the peer whose public key to retrieve
-    ///
-    /// # Returns
-    ///
-    /// `Some(public_key)` if a key is stored for the peer, `None` otherwise.
-    pub async fn pubkey(&self, id: PeerId) -> Option<PublicKey> {
-        self.keys.read().await.get(&id).cloned()
+    /// * `id` - The ID of the peer whose public key to set
+    /// * `key` - The public key to set for the peer
+    pub fn set_pubkey(&self, id: PeerId, key: PublicKey) {
+        trace!(
+            "Community::set_pubkey - Setting public key for peer {}",
+            id.to_string()
+        );
+        self.keys.insert(id, key);
+        trace!(
+            "Community::set_pubkey - Keystore now has {}/{} keys",
+            self.keys.len(),
+            self.peers.len()
+        );
+    }
+
+    pub fn keystore(&self) -> KeyStore {
+        KeyStore {
+            keys: Arc::new(self.keys.clone()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct KeyStore {
+    keys: Arc<DashMap<PeerId, PublicKey>>,
+}
+
+impl KeyStore {
+    pub fn get(
+        &self,
+        id: &PeerId,
+    ) -> std::option::Option<dashmap::mapref::one::Ref<'_, PeerId, PublicKey>> {
+        self.keys.get(id)
     }
 }

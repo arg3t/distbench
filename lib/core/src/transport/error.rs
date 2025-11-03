@@ -83,4 +83,12 @@ pub enum TransportError {
     /// This is automatically converted from `tokio::sync::watch::error::SendError`.
     #[error("Watch error: {0}")]
     WatchError(#[from] SendError<NodeStatus>),
+
+    /// The node is not ready to process messages yet.
+    #[error("Node is not ready to process messages yet")]
+    NotReady { message: String },
+
+    /// An error occurred while writing to a file.
+    #[error("IO error: {0}")]
+    IOError(#[from] std::io::Error),
 }

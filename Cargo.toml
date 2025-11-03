@@ -30,6 +30,7 @@ rand = "0.8"
 chrono = "0.4"
 ansi_term = "0.12.1"
 rkyv = { version = "0.7", features = ["validation"] }
+common_macros = "0.1.1"
 
 [build-dependencies]
 syn = { version = "2.0", features = ["full", "parsing"] }

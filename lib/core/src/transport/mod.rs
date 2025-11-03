@@ -16,9 +16,9 @@ pub mod channel;
 pub mod error;
 pub mod tcp;
 
+pub use crate::managers::ThinConnectionManager;
 use async_trait::async_trait;
 pub use error::{Result, TransportError};
-pub use crate::managers::ThinConnectionManager;
 use tokio::sync::Notify;
 
 use crate::algorithm::SelfTerminating;

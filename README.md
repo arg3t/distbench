@@ -46,6 +46,7 @@ cargo run --release -- \
 ```
 
 This will:
+
 1. Load the configuration from `configs/test_config.yaml`
 2. Spawn all nodes in the same process
 3. Execute the Echo algorithm
@@ -112,15 +113,18 @@ pub struct PingPong {
     #[framework::config(default = 5)]
     max_rounds: u32,
 
-    // Internal state fields are added automatically:
-    // - peers: HashMap<PeerId, Peer>
-    // - termination_signal: Arc<Notify>
+    // Internal state variables for the algorithm
+    pings: AtomicU64
 }
 ```
 
 The `#[framework::config]` attribute marks fields that should be loaded from the configuration file:
+
 - Without `default`: field is required in config
 - With `default = value`: field is optional, uses default if not present
+
+> [!IMPORTANT]  
+> The other fields in the internal state of the algorithm must all implement the `Send` and `Default` traits.
 
 ### Step 3: Implement Algorithm Lifecycle
 
@@ -189,6 +193,7 @@ impl PingPong {
 ```
 
 The macro automatically:
+
 - Generates peer proxy methods (e.g., `peer.ping(msg)`)
 - Handles message serialization/deserialization
 - Routes incoming messages to the correct handler
@@ -196,6 +201,7 @@ The macro automatically:
 ### Step 5: Add to Algorithms Directory
 
 Save your algorithm to `src/algorithms/pingpong.rs`. The build system will automatically:
+
 - Discover the algorithm
 - Generate registration code
 - Make it available via the `--algorithm` flag
@@ -265,12 +271,14 @@ Options:
 ### Execution Modes
 
 **Offline Mode** (default):
+
 - Runs all nodes in a single process
 - Uses in-memory channels for communication
 - Fast and deterministic
 - Ideal for testing and development
 
 **Network Mode**:
+
 - Each node runs in a separate process
 - Uses TCP sockets for communication
 - Requires `--id` to specify which node to run
@@ -425,6 +433,7 @@ cargo test test_name
 For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Key architectural concepts:
+
 - **Transport Layer**: Abstraction over networking (TCP, channels)
 - **Community**: Manages peer relationships and status
 - **Node**: Coordinates lifecycle and message routing
@@ -449,6 +458,7 @@ When implementing new algorithms:
 ### Algorithm not found
 
 If you get "Unknown algorithm type" error:
+
 - Ensure your algorithm struct has `#[framework::state]` attribute
 - Verify the file is in `src/algorithms/` directory
 - Run `cargo clean` and rebuild
@@ -456,6 +466,7 @@ If you get "Unknown algorithm type" error:
 ### Nodes not synchronizing
 
 If nodes hang during startup:
+
 - Check that all node IDs in config file are unique
 - Verify neighbor lists are correct and bidirectional
 - Ensure network addresses don't conflict (in network mode)
@@ -463,6 +474,7 @@ If nodes hang during startup:
 ### Message handler not called
 
 If your message handler isn't being invoked:
+
 - Verify you have `#[framework::handlers]` on the impl block
 - Check that message type matches exactly (case-sensitive)
 - Ensure the handler signature matches the pattern: `async fn name(&self, src: PeerId, msg: &MsgType)`

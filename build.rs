@@ -90,15 +90,25 @@ macro_rules! start_node {{
                 use futures::FutureExt;
                 use distbench::algorithms::{mod_name}::{{{struct_name}Config}};
                 use ::framework::AlgorithmFactory;
+                use ::framework::crypto::PrivateKey;
 
-                let config: {struct_name}Config = serde_json::from_value($alg_config.clone())
-                    .expect("Failed to deserialize into concrete config type for {struct_name}");
+                let config: {struct_name}Config = 
+                match serde_json::from_value($alg_config.clone()) {{
+                    Ok(config) => config,
+                    Err(e) => {{
+                        error!("Failed to deserialize into concrete config type for {struct_name}: {{}}", e);
+                        return;
+                    }}
+                }};
 
-                let algorithm = config.build($format.clone(), &$community)
+                let key = PrivateKey::generate();
+
+                let algorithm = config.build($format.clone(), key.clone(), $peer_id.clone(), $community.clone())
                     .expect("Failed to build algorithm");
 
                 let node = ::framework::Node::new(
-                    $peer_id,
+                    $peer_id.clone(),
+                    key,
                     $community,
                     algorithm,
                     $format.clone(),
@@ -107,7 +117,7 @@ macro_rules! start_node {{
                 let signal = $stop_signal.clone();
 
                 async move {{
-                    node.start(signal).await.expect("Failed to start node").await
+                    ($peer_id, node.start(signal).await.expect("Failed to start node").await)
                 }}.boxed()
             }}
         "#,
