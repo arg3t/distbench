@@ -19,3 +19,9 @@ pub enum PeerError {
     #[error("Unknown message type: {message}")]
     UnknownMessageType { message: String },
 }
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Config field '{field}' is required")]
+    RequiredField { field: String },
+}

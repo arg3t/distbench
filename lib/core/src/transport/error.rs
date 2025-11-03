@@ -40,4 +40,8 @@ pub enum TransportError {
     /// Unknown peer
     #[error("Unknown peer: {addr}")]
     UnknownPeer { addr: String },
+
+    /// Connection closed
+    #[error("Connection closed")]
+    ConnectionClosed,
 }

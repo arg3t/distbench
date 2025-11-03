@@ -1,26 +1,32 @@
 use std::{fmt::Display, hash::Hash};
 
+pub mod channel;
 pub mod error;
 pub mod tcp;
 
+use async_trait::async_trait;
 pub use error::{Result, TransportError};
 
-pub trait Address: Hash + Eq + Clone + Display {}
+pub trait Address: Hash + Eq + Clone + Display + Send + Sync {}
 
-pub trait Transport: Clone {
+#[async_trait]
+pub trait Connection<T: Transport>: Send + Sync {
+    async fn send(&self, msg: Vec<u8>) -> Result<Vec<u8>>;
+    async fn cast(&self, msg: Vec<u8>) -> Result<()>;
+    async fn close(&self) -> Result<()>;
+}
+
+#[async_trait]
+pub trait Transport: Clone + Send + Sync {
     type Address: Address;
     type Connection: Connection<Self>;
 
     async fn connect(&self, addr: Self::Address) -> Result<Self::Connection>;
-    async fn serve(&self, server: impl Server<Self>) -> Result<()>;
+    async fn serve(&self, server: impl Server<Self> + 'static) -> Result<()>;
 }
 
-pub trait Server<T: Transport>: Clone {
-    async fn handle(&self, addr: T::Address, msg: Vec<u8>) -> Result<Vec<u8>>;
-}
-
-pub trait Connection<T: Transport>: Clone {
-    async fn send(&self, msg: Vec<u8>) -> Result<Vec<u8>>;
-    async fn cast(&self, msg: Vec<u8>) -> Result<()>;
-    async fn close(&self) -> Result<()>;
+#[async_trait]
+pub trait Server<T: Transport>: Clone + Send + Sync {
+    async fn handle(&self, addr: &T::Address, msg: Vec<u8>) -> Result<Option<Vec<u8>>>;
+    async fn stopped(&self);
 }

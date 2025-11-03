@@ -1,4 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use tokio::sync::RwLock;
 
 use crate::transport;
 
@@ -17,21 +22,23 @@ impl PeerId {
 }
 
 pub struct Community<T: transport::Transport> {
-    neighbours: HashSet<PeerId>,
-    addresses: HashMap<PeerId, T::Address>,
-    peers: HashMap<T::Address, PeerId>,
-    keys: HashMap<PeerId, PublicKey>,
+    neighbours: Arc<HashSet<PeerId>>,
+    addresses: Arc<HashMap<PeerId, T::Address>>,
+    peers: Arc<HashMap<T::Address, PeerId>>,
+    keys: RwLock<HashMap<PeerId, PublicKey>>,
 }
 
 impl<T: transport::Transport> Community<T> {
     pub fn new(neighbours: HashSet<PeerId>, addresses: HashMap<PeerId, T::Address>) -> Self {
         Self {
-            neighbours,
-            peers: addresses
-                .iter()
-                .map(|(id, addr)| (addr.clone(), id.clone()))
-                .collect(),
-            addresses,
+            neighbours: Arc::new(neighbours),
+            peers: Arc::new(
+                addresses
+                    .iter()
+                    .map(|(id, addr)| (addr.clone(), id.clone()))
+                    .collect(),
+            ),
+            addresses: Arc::new(addresses),
             keys: Default::default(),
         }
     }
@@ -48,7 +55,7 @@ impl<T: transport::Transport> Community<T> {
         &self.neighbours
     }
 
-    pub fn pubkey(&self, id: PeerId) -> Option<PublicKey> {
-        self.keys.get(&id).cloned()
+    pub async fn pubkey(&self, id: PeerId) -> Option<PublicKey> {
+        self.keys.read().await.get(&id).cloned()
     }
 }

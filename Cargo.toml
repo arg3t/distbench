@@ -14,10 +14,15 @@ name = "cs4545"
 path = "src/lib.rs"
 
 [dependencies]
-procs = { path = "lib/procs" }
+async-trait = "0.1.89"
+clap = { version = "4.5.51", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.11.8"
 framework = { path = "lib/core" }
+log = "0.4.28"
 serde = "1.0.228"
 serde_json = "1.0.145"
+serde_yaml = "0.9.34"
 typetag = "0.2.21"
 
 [dev-dependencies]
