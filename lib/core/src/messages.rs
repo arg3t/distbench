@@ -3,13 +3,14 @@
 //! This module defines the message types used for communication between nodes
 //! in the distributed system.
 
-use serde::{Deserialize, Serialize};
+use rkyv::{Archive, Deserialize, Serialize};
 
 /// Messages exchanged between nodes for coordination and algorithm execution.
 ///
 /// `NodeMessage` is an envelope type that wraps different kinds of messages
 /// that nodes send to each other during execution.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Archive)]
+#[archive(check_bytes)]
 pub enum NodeMessage {
     /// Indicates that a node has started and is ready to participate.
     Started,

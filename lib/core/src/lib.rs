@@ -23,7 +23,7 @@
 //! let community = Community::new(/* ... */);
 //!
 //! // Create and start a node
-//! let node = Node::new(peer_id, Arc::new(community), Arc::new(algorithm))?;
+//! let node = Node::new(peer_id, Arc::new(community), Arc::new(algorithm), Arc::new(JsonFormat))?;
 //! node.start(stop_signal).await?;
 //! ```
 

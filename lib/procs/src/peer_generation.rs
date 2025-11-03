@@ -61,12 +61,13 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                                 msg_bytes
                             );
 
-                            let envelope_bytes = self.format.serialize(&envelope)
+                            // Use rkyv to serialize the NodeMessage envelope
+                            let envelope_bytes = ::rkyv::to_bytes::<_, 256>(&envelope)
                                 .map_err(|e| ::framework::PeerError::SerializationFailed {
-                                    message: format!("Failed to serialize envelope: {}", e)
+                                    message: format!("Failed to serialize envelope with rkyv: {}", e)
                                 })?;
 
-                            self.connection_manager.cast(envelope_bytes).await
+                            self.connection_manager.cast(envelope_bytes.to_vec()).await
                                 .map_err(|e| ::framework::PeerError::TransportError {
                                     message: format!("Failed to cast message: {}", e)
                                 })?;
@@ -93,12 +94,13 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                                 msg_bytes
                             );
 
-                            let envelope_bytes = self.format.serialize(&envelope)
+                            // Use rkyv to serialize the NodeMessage envelope
+                            let envelope_bytes = ::rkyv::to_bytes::<_, 256>(&envelope)
                                 .map_err(|e| ::framework::PeerError::SerializationFailed {
-                                    message: format!("Failed to serialize envelope: {}", e)
+                                    message: format!("Failed to serialize envelope with rkyv: {}", e)
                                 })?;
 
-                            let reply_bytes = self.connection_manager.send(envelope_bytes).await
+                            let reply_bytes = self.connection_manager.send(envelope_bytes.to_vec()).await
                                 .map_err(|e| ::framework::PeerError::TransportError {
                                     message: format!("Failed to send message: {}", e)
                                 })?;

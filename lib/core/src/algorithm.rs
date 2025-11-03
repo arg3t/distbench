@@ -57,7 +57,7 @@ pub trait SelfTerminating {
     ///
     /// # Returns
     ///
-    /// `true` if the algorithm has terminated, `false` otherwise.
+    /// `true` if the algorithm has terminated, otherwise waits for termination.
     async fn terminated(&self) -> bool;
 }
 

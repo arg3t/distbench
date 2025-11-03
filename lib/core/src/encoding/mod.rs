@@ -14,7 +14,7 @@
 //!
 //! By default, the framework uses JSON:
 //! ```ignore
-//! let node = Node::new(config); // Uses JsonFormat by default
+//! let node = Node::new(config, Arc::new(JsonFormat)); // Uses JsonFormat by default
 //! ```
 //!
 //! To use a different format:

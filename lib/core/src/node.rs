@@ -22,52 +22,57 @@ use crate::NODE_ID_CTX;
 /// Internal peer representation for node-to-node communication.
 ///
 /// Wraps a connection manager and provides methods to send node lifecycle messages.
-struct NodePeer<T, CM, F>
+struct NodePeer<T, CM>
 where
     T: Transport,
     CM: ConnectionManager<T>,
-    F: Format,
 {
     conn_manager: Arc<CM>,
-    format: Arc<F>,
     _phantom: PhantomData<T>,
 }
 
-impl<T, CM, F> NodePeer<T, CM, F>
+impl<T, CM> NodePeer<T, CM>
 where
     T: Transport,
     CM: ConnectionManager<T>,
-    F: Format,
 {
-    /// Creates a new `NodePeer` with the given connection manager and format.
-    pub fn new(conn_manager: Arc<CM>, format: Arc<F>) -> Self {
+    /// Creates a new `NodePeer` with the given connection manager.
+    pub fn new(conn_manager: Arc<CM>) -> Self {
         Self {
             conn_manager,
-            format,
             _phantom: PhantomData,
         }
     }
 
     /// Notifies the peer that this node has started.
     pub async fn started(&self) -> Result<(), TransportError> {
-        self.conn_manager
-            .cast(self.format.serialize(&NodeMessage::Started)?)
-            .await
+        let message = NodeMessage::Started;
+        let bytes =
+            rkyv::to_bytes::<_, 256>(&message).map_err(|e| TransportError::AlgorithmError {
+                message: format!("Failed to serialize NodeMessage::Started: {}", e),
+            })?;
+        self.conn_manager.cast(bytes.to_vec()).await
     }
 
     /// Notifies the peer that this node has finished.
     pub async fn finished(&self) -> Result<(), TransportError> {
-        self.conn_manager
-            .cast(self.format.serialize(&NodeMessage::Finished)?)
-            .await
+        let message = NodeMessage::Finished;
+        let bytes =
+            rkyv::to_bytes::<_, 256>(&message).map_err(|e| TransportError::AlgorithmError {
+                message: format!("Failed to serialize NodeMessage::Finished: {}", e),
+            })?;
+        self.conn_manager.cast(bytes.to_vec()).await
     }
 
     /// Requests the public key from the peer.
     #[allow(dead_code)]
     pub async fn get_pubkey(&self) -> Result<(), TransportError> {
-        self.conn_manager
-            .cast(self.format.serialize(&NodeMessage::GetPubKey)?)
-            .await
+        let message = NodeMessage::GetPubKey;
+        let bytes =
+            rkyv::to_bytes::<_, 256>(&message).map_err(|e| TransportError::AlgorithmError {
+                message: format!("Failed to serialize NodeMessage::GetPubKey: {}", e),
+            })?;
+        self.conn_manager.cast(bytes.to_vec()).await
     }
 }
 
@@ -82,7 +87,7 @@ where
 /// * `T` - The transport layer implementation (e.g., TCP, channels)
 /// * `CM` - The connection manager implementation
 /// * `A` - The algorithm implementation to execute on this node
-/// * `F` - The serialization format (defaults to JSON)
+/// * `F` - The serialization format for algorithm messages (defaults to JSON)
 ///
 /// # Examples
 ///
@@ -95,14 +100,7 @@ where
 ///     peer_id,
 ///     Arc::new(community),
 ///     Arc::new(algorithm),
-/// )?;
-///
-/// // Using a custom format
-/// let node = Node::with_format(
-///     peer_id,
-///     Arc::new(community),
-///     Arc::new(algorithm),
-///     BincodeFormat,
+///     Arc::new(JsonFormat),
 /// )?;
 /// ```
 pub struct Node<T, CM, A, F = JsonFormat>
@@ -147,7 +145,7 @@ where
     /// * `id` - The unique identifier for this node
     /// * `community` - The community this node belongs to
     /// * `algo` - The algorithm instance to execute
-    /// * `format` - The serialization format to use
+    /// * `format` - The serialization format to use for algorithm messages
     ///
     /// # Errors
     ///
@@ -191,7 +189,7 @@ where
                     let mut futures = Vec::new();
 
                     for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn, self.format.clone());
+                        let peer = NodePeer::new(conn);
                         futures.push(async move { peer.started().await });
                     }
                     futures::future::join_all(futures).await;
@@ -210,7 +208,7 @@ where
                 NodeStatus::Stopping => {
                     let mut futures = Vec::new();
                     for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn, self.format.clone());
+                        let peer = NodePeer::new(conn);
                         futures.push(async move { peer.finished().await });
                     }
 
@@ -313,7 +311,16 @@ where
                 addr: src.to_string(),
             })?;
 
-        let msg = self.format.deserialize(&msg)?;
+        // Use rkyv to deserialize the NodeMessage
+        let archived = rkyv::check_archived_root::<NodeMessage>(&msg).map_err(|e| {
+            TransportError::AlgorithmError {
+                message: format!("Failed to deserialize NodeMessage with rkyv: {}", e),
+            }
+        })?;
+        let msg: NodeMessage = rkyv::Deserialize::deserialize(archived, &mut rkyv::Infallible)
+            .map_err(|e| TransportError::AlgorithmError {
+                message: format!("Failed to deserialize NodeMessage with rkyv: {}", e),
+            })?;
 
         let result = match msg {
             NodeMessage::Algorithm(msg_type, msg) => self
