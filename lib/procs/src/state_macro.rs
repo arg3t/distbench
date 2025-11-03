@@ -1,4 +1,4 @@
-//! Implementation of the `#[framework::state]` attribute macro.
+//! Implementation of the `#[distbench::state]` attribute macro.
 //!
 //! This macro transforms an algorithm state struct into a complete algorithm
 //! implementation with configuration support and peer management.
@@ -10,10 +10,10 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
 use syn::{Data, DeriveInput, Field, Fields};
 
-/// Implements the `#[framework::state]` macro.
+/// Implements the `#[distbench::state]` macro.
 ///
 /// This macro:
-/// - Extracts `#[framework::config]` fields
+/// - Extracts `#[distbench::config]` fields
 /// - Generates a corresponding Config struct
 /// - Adds `peers` and `stopped` fields
 /// - Implements the `AlgorithmFactory` trait
@@ -62,18 +62,18 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
             for field in fields.named.iter_mut() {
                 field.attrs.retain(|attr| {
                     let path_str = attr.into_token_stream().to_string().replace(" ", "");
-                    !path_str.contains("framework::config")
+                    !path_str.contains("distbench::config")
                 });
             }
 
             let id_field: Field = syn::parse_quote! {
-                id: ::framework::community::PeerId
+                id: ::distbench::community::PeerId
             };
             let key_field: Field = syn::parse_quote! {
-                key: ::framework::crypto::PrivateKey
+                key: ::distbench::crypto::PrivateKey
             };
             let peers_field: Field = syn::parse_quote! {
-                peers: ::std::collections::HashMap<::framework::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>>
+                peers: ::std::collections::HashMap<::distbench::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>>
             };
             let stopped_field: Field = syn::parse_quote! {
                 #[allow(dead_code)]
@@ -127,14 +127,13 @@ pub(crate) fn algorithm_state_impl(item: TokenStream) -> TokenStream {
 
 /// Generates helper functions for the algorithm.
 fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenStream2 {
-    let alg_name_str = alg_name.to_string();
     quote! {
         impl #alg_name {
-            fn peers(&self) -> impl Iterator<Item = (&framework::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>)> {
+            fn peers(&self) -> impl Iterator<Item = (&distbench::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>)> {
                 self.peers.iter().map(|(peer_id, peer)| (peer_id, peer.clone()))
             }
 
-            fn peer(&self, id: &framework::community::PeerId) -> Option<std::sync::Arc<Box<dyn #peer_name>>> {
+            fn peer(&self, id: &distbench::community::PeerId) -> Option<std::sync::Arc<Box<dyn #peer_name>>> {
                 self.peers.get(id).cloned()
             }
         }
@@ -155,7 +154,7 @@ fn generate_field_initializers(
                 quote! { #name: self.#name.unwrap_or(#default) }
             } else {
                 let name_str = name.to_string();
-                quote! { #name: self.#name.ok_or(::framework::ConfigError::RequiredField { field: #name_str.to_string() })? }
+                quote! { #name: self.#name.ok_or(::distbench::ConfigError::RequiredField { field: #name_str.to_string() })? }
             }
         })
         .chain(default_fields.iter().map(|f| {
@@ -170,7 +169,7 @@ fn generate_named_impl(alg_name: &syn::Ident) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
     quote! {
         #[async_trait::async_trait]
-        impl ::framework::algorithm::Named for #alg_name {
+        impl ::distbench::algorithm::Named for #alg_name {
             fn name(&self) -> &str {
                 #alg_name_str
             }
@@ -188,25 +187,25 @@ fn generate_factory_impl(
 ) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
     quote! {
-        impl<F, T, CM> ::framework::AlgorithmFactory<F, T, CM> for #config_name
+        impl<F, T, CM> ::distbench::AlgorithmFactory<F, T, CM> for #config_name
         where
-            T: ::framework::transport::Transport + 'static,
-            CM: ::framework::transport::ConnectionManager<T> + 'static,
-            F: ::framework::Format + 'static,
+            T: ::distbench::transport::Transport + 'static,
+            CM: ::distbench::transport::ConnectionManager<T> + 'static,
+            F: ::distbench::Format + 'static,
         {
             type Algorithm = #alg_name;
 
             fn build(
                 self,
                 format: ::std::sync::Arc<F>,
-                key: ::framework::crypto::PrivateKey,
-                id: ::framework::community::PeerId,
-                community: ::std::sync::Arc<::framework::community::Community<T, CM>>,
-            ) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
+                key: ::distbench::crypto::PrivateKey,
+                id: ::distbench::community::PeerId,
+                community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
+            ) -> Result<::std::sync::Arc<Self::Algorithm>, ::distbench::ConfigError> {
                 ::log::trace!("{}::build() - Building algorithm instance for node {:?}", #alg_name_str, id);
                 let conn_managers = community.clone().neighbours();
                 ::log::trace!("{}::build() - Creating peer proxies for {} neighbours", #alg_name_str, conn_managers.len());
-                let peers: ::std::collections::HashMap<::framework::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>> = conn_managers
+                let peers: ::std::collections::HashMap<::distbench::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>> = conn_managers
                     .into_iter()
                     .map(|(peer_id, conn_manager)| {
                         ::log::trace!("{}::build() - Creating peer proxy for {:?}", #alg_name_str, peer_id);
@@ -244,7 +243,7 @@ fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
     quote! {
         #[async_trait::async_trait]
-        impl ::framework::SelfTerminating for #alg_name {
+        impl ::distbench::SelfTerminating for #alg_name {
             async fn terminate(&self) {
                 ::log::trace!("{}.terminate() - Sending termination signal", #alg_name_str);
                 // Send 'true' to signal stopped.

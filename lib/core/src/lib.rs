@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use framework::{Node, algorithm::Algorithm, community::Community};
+//! use distbench::{Node, algorithm::Algorithm, community::Community};
 //!
 //! // Define your algorithm by implementing the Algorithm trait
 //! struct EchoAlgorithm { /* ... */ }

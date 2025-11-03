@@ -2,7 +2,6 @@
 
 use super::{Format, FormatError};
 use crate::{community::KeyStore, crypto::PrivateKey, PeerId};
-use log::trace;
 use serde::{Deserialize, Serialize};
 
 /// Bincode serialization format.

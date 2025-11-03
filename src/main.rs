@@ -1,12 +1,12 @@
 use clap::{Parser, ValueEnum};
-use distbench::config::load_config;
-use distbench::logging::init_logger;
-use distbench::transport_setup::setup_offline_transport;
-use framework::community::PeerId;
-use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
-use framework::transport::ThinConnectionManager;
-use framework::JsonFormat;
+use distbench::community::PeerId;
+use distbench::transport::channel::{ChannelTransport, ChannelTransportBuilder};
+use distbench::transport::ThinConnectionManager;
+use distbench::JsonFormat;
 use log::{error, info};
+use runner::config::load_config;
+use runner::logging::init_logger;
+use runner::transport_setup::setup_offline_transport;
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -115,7 +115,7 @@ async fn main() {
 ///
 /// * `args` - Command-line arguments
 /// * `config` - Parsed configuration
-async fn run_offline_mode(args: &CliArgs, config: &distbench::config::ConfigFile) {
+async fn run_offline_mode(args: &CliArgs, config: &runner::config::ConfigFile) {
     let stop_signal = Arc::new(Notify::new());
     let builder = ChannelTransportBuilder::new();
     let mut handles = Vec::new();

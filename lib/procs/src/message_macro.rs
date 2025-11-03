@@ -1,4 +1,4 @@
-//! Implementation of the `#[framework::message]` attribute macro.
+//! Implementation of the `#[distbench::message]` attribute macro.
 //!
 //! This macro automatically derives common traits for message types.
 
@@ -6,7 +6,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
-/// Implements the `#[framework::message]` macro.
+/// Implements the `#[distbench::message]` macro.
 ///
 /// Automatically adds `#[derive(Serialize, Deserialize, Clone, Debug)]`
 /// to the message type.

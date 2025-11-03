@@ -36,7 +36,7 @@ fn main() {
                                     let has_setup_attr = item_struct.attrs.iter().any(|attr| {
                                         let segments = &attr.path().segments;
                                         segments.len() == 2
-                                            && segments[0].ident == "framework"
+                                            && segments[0].ident == "distbench"
                                             && segments[1].ident == "state"
                                     });
 
@@ -88,9 +88,9 @@ macro_rules! start_node {{
             r#"
             "{struct_name}" => {{
                 use futures::FutureExt;
-                use distbench::algorithms::{mod_name}::{{{struct_name}Config}};
-                use ::framework::AlgorithmFactory;
-                use ::framework::crypto::PrivateKey;
+                use runner::algorithms::{mod_name}::{{{struct_name}Config}};
+                use ::distbench::AlgorithmFactory;
+                use ::distbench::crypto::PrivateKey;
 
                 let config: {struct_name}Config = 
                 match serde_json::from_value($alg_config.clone()) {{
@@ -106,7 +106,7 @@ macro_rules! start_node {{
                 let algorithm = config.build($format.clone(), key.clone(), $peer_id.clone(), $community.clone())
                     .expect("Failed to build algorithm");
 
-                let node = ::framework::Node::new(
+                let node = ::distbench::Node::new(
                     $peer_id.clone(),
                     key,
                     $community,
@@ -132,7 +132,7 @@ macro_rules! start_node {{
         r#"
             _ => {{
                 panic!(
-                    "Unknown algorithm type '{{}}'. Is the file in 'src/algorithms' and the struct marked with #[framework::setup]?",
+                    "Unknown algorithm type '{{}}'. Is the file in 'src/algorithms' and the struct marked with #[distbench::setup]?",
                     $algo_name
                 );
             }}

@@ -16,11 +16,11 @@ pub(crate) fn generate_peer_trait_fns(handlers: &[HandlerInfo]) -> Vec<TokenStre
             let reply_type = &handler.reply_type;
             if handler.reply_type.is_some() {
                 quote! {
-                    async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError>;
+                    async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::distbench::PeerError>;
                 }
             } else {
                 quote! {
-                    async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError>;
+                    async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::distbench::PeerError>;
                 }
             }
         })
@@ -47,17 +47,17 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                 None => {
                     // Cast method (no reply expected)
                     quote! {
-                        async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError> {
-                            use ::framework::transport::ConnectionManager;
-                            use ::framework::Format;
+                        async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::distbench::PeerError> {
+                            use ::distbench::transport::ConnectionManager;
+                            use ::distbench::Format;
 
                             ::log::trace!("Peer::{} - Serializing message of type {}", stringify!(#method_name), #msg_type_str);
                             let msg_bytes = self.format.serialize(msg, &self.key, &self.id)
-                                .map_err(|e| ::framework::PeerError::SerializationFailed {
+                                .map_err(|e| ::distbench::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
                                 })?;
 
-                            let envelope = ::framework::NodeMessage::Algorithm(
+                            let envelope = ::distbench::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
                                 msg_bytes
                             );
@@ -65,13 +65,13 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                             ::log::trace!("Peer::{} - Serializing envelope with rkyv", stringify!(#method_name));
                             // Use rkyv to serialize the NodeMessage envelope
                             let envelope_bytes = ::rkyv::to_bytes::<_, 256>(&envelope)
-                                .map_err(|e| ::framework::PeerError::SerializationFailed {
+                                .map_err(|e| ::distbench::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize envelope with rkyv: {}", e)
                                 })?;
 
                             ::log::trace!("Peer::{} - Casting {} bytes", stringify!(#method_name), envelope_bytes.len());
                             self.connection_manager.cast(envelope_bytes.to_vec()).await
-                                .map_err(|e| ::framework::PeerError::TransportError {
+                                .map_err(|e| ::distbench::PeerError::TransportError {
                                     message: format!("Failed to cast message: {}", e)
                                 })?;
 
@@ -84,17 +84,17 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                     // Send method (expects reply)
                     let reply_type_str = quote!(#reply_type).to_string().replace(" ", "");
                     quote! {
-                        async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError> {
-                            use ::framework::transport::ConnectionManager;
-                            use ::framework::Format;
+                        async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::distbench::PeerError> {
+                            use ::distbench::transport::ConnectionManager;
+                            use ::distbench::Format;
 
                             ::log::trace!("Peer::{} - Serializing message of type {}", stringify!(#method_name), #msg_type_str);
                             let msg_bytes = self.format.serialize(msg, &self.key, &self.id)
-                                .map_err(|e| ::framework::PeerError::SerializationFailed {
+                                .map_err(|e| ::distbench::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
                                 })?;
 
-                            let envelope = ::framework::NodeMessage::Algorithm(
+                            let envelope = ::distbench::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
                                 msg_bytes
                             );
@@ -102,19 +102,19 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                             ::log::trace!("Peer::{} - Serializing envelope with rkyv", stringify!(#method_name));
                             // Use rkyv to serialize the NodeMessage envelope
                             let envelope_bytes = ::rkyv::to_bytes::<_, 256>(&envelope)
-                                .map_err(|e| ::framework::PeerError::SerializationFailed {
+                                .map_err(|e| ::distbench::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize envelope with rkyv: {}", e)
                                 })?;
 
                             ::log::trace!("Peer::{} - Sending {} bytes and waiting for reply", stringify!(#method_name), envelope_bytes.len());
                             let reply_bytes = self.connection_manager.send(envelope_bytes.to_vec()).await
-                                .map_err(|e| ::framework::PeerError::TransportError {
+                                .map_err(|e| ::distbench::PeerError::TransportError {
                                     message: format!("Failed to send message: {}", e)
                                 })?;
 
                             ::log::trace!("Peer::{} - Received reply: {} bytes, deserializing", stringify!(#method_name), reply_bytes.len());
                             let reply: #reply_type = self.format.deserialize(&reply_bytes, self.community.keystore())
-                                .map_err(|e| ::framework::PeerError::DeserializationFailed {
+                                .map_err(|e| ::distbench::PeerError::DeserializationFailed {
                                     message: format!("Failed to deserialize reply of type '{}': {}", #reply_type_str, e)
                                 })?;
 
@@ -138,17 +138,17 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 pub(crate) fn generate_peer_struct(peer_name: &syn::Ident) -> TokenStream2 {
     quote! {
         #[derive(Clone)]
-        struct #peer_name<F: ::framework::Format, T: ::framework::transport::Transport + 'static, CM: ::framework::transport::ConnectionManager<T> + 'static> {
+        struct #peer_name<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> {
             connection_manager: ::std::sync::Arc<CM>,
             format: ::std::sync::Arc<F>,
-            id: ::framework::community::PeerId,
-            key: ::framework::crypto::PrivateKey,
-            community: ::std::sync::Arc<::framework::community::Community<T, CM>>,
+            id: ::distbench::community::PeerId,
+            key: ::distbench::crypto::PrivateKey,
+            community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
             _phantom: ::std::marker::PhantomData<T>,
         }
 
-        impl<F: ::framework::Format, T: ::framework::transport::Transport + 'static, CM: ::framework::transport::ConnectionManager<T> + 'static> #peer_name<F, T, CM> {
-            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<F>, id: ::framework::community::PeerId, key: ::framework::crypto::PrivateKey, community: ::std::sync::Arc<::framework::community::Community<T, CM>>) -> Self {
+        impl<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> #peer_name<F, T, CM> {
+            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<F>, id: ::distbench::community::PeerId, key: ::distbench::crypto::PrivateKey, community: ::std::sync::Arc<::distbench::community::Community<T, CM>>) -> Self {
                 Self {
                     connection_manager,
                     format,

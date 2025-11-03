@@ -1,4 +1,4 @@
-//! Implementation of the `#[framework::handlers]` attribute macro.
+//! Implementation of the `#[distbench::handlers]` attribute macro.
 //!
 //! This macro generates the AlgorithmHandler trait implementation and peer
 //! method implementations from handler methods.
@@ -9,7 +9,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{ItemImpl, Type};
 
-/// Implements the `#[framework::handlers]` macro.
+/// Implements the `#[distbench::handlers]` macro.
 ///
 /// This macro:
 /// - Extracts all handler methods from the impl block
@@ -74,7 +74,7 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
     // Generate only the impl block for Peer methods, not the struct itself
     let peer_methods_impl = quote! {
         #[async_trait::async_trait]
-        impl<F: ::framework::Format, T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name for #peer_name_impl<F, T, CM> {
+        impl<F: ::distbench::Format, T: ::distbench::transport::Transport, CM: ::distbench::transport::ConnectionManager<T>> #peer_name for #peer_name_impl<F, T, CM> {
             #(#peer_methods)*
         }
     };

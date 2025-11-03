@@ -218,7 +218,7 @@ impl Default for AlgoMetrics {
 /// # Examples
 ///
 /// ```ignore
-/// use framework::{Node, community::Community, JsonFormat};
+/// use distbench::{Node, community::Community, JsonFormat};
 /// use std::sync::Arc;
 ///
 /// // Using default JSON format

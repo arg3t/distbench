@@ -21,7 +21,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use framework::crypto::{PublicKey, PrivateKey, Signature};
+//! use distbench::crypto::{PublicKey, PrivateKey, Signature};
 //!
 //! let private_key = PrivateKey::generate();
 //! let public_key = private_key.pubkey();

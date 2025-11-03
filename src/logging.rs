@@ -11,7 +11,7 @@ use log::Level;
 /// Sets up a logger that:
 /// - Uses colored output for different log levels
 /// - Includes timestamps
-/// - Shows node context when available (via `framework::get_node_context`)
+/// - Shows node context when available (via `distbench::get_node_context`)
 ///
 /// # Arguments
 ///
@@ -45,7 +45,7 @@ pub fn init_logger(verbose: u8) {
                 Level::Trace => Purple.paint("TRACE"),
             };
 
-            let node_id = framework::get_node_context()
+            let node_id = distbench::get_node_context()
                 .map(|id| Cyan.paint(format!("[{}] ", id)).to_string())
                 .unwrap_or_default();
 

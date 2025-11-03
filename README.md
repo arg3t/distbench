@@ -79,17 +79,17 @@ cs4545-da/
 
 ### Step 1: Define Messages
 
-Use the `#[framework::message]` macro to define message types:
+Use the `#[distbench::message]` macro to define message types:
 
 ```rust
-use framework::message;
+use distbench::message;
 
-#[framework::message]
+#[distbench::message]
 struct Ping {
     sequence: u32,
 }
 
-#[framework::message]
+#[distbench::message]
 struct Pong {
     sequence: u32,
 }
@@ -99,18 +99,18 @@ This automatically derives serialization and other necessary traits.
 
 ### Step 2: Define Algorithm State
 
-Use the `#[framework::state]` macro to define your algorithm's state:
+Use the `#[distbench::state]` macro to define your algorithm's state:
 
 ```rust
-use framework::state;
+use distbench::state;
 
-#[framework::state]
+#[distbench::state]
 pub struct PingPong {
     // Configuration fields (loaded from config file)
-    #[framework::config]
+    #[distbench::config]
     initiator: bool,
 
-    #[framework::config(default = 5)]
+    #[distbench::config(default = 5)]
     max_rounds: u32,
 
     // Internal state variables for the algorithm
@@ -118,7 +118,7 @@ pub struct PingPong {
 }
 ```
 
-The `#[framework::config]` attribute marks fields that should be loaded from the configuration file:
+The `#[distbench::config]` attribute marks fields that should be loaded from the configuration file:
 
 - Without `default`: field is required in config
 - With `default = value`: field is optional, uses default if not present
@@ -132,7 +132,7 @@ Implement the `Algorithm` trait to define lifecycle hooks:
 
 ```rust
 use async_trait::async_trait;
-use framework::Algorithm;
+use distbench::Algorithm;
 
 #[async_trait]
 impl Algorithm for PingPong {
@@ -155,13 +155,13 @@ impl Algorithm for PingPong {
 
 ### Step 4: Implement Message Handlers
 
-Use the `#[framework::handlers]` macro to define how your algorithm handles messages:
+Use the `#[distbench::handlers]` macro to define how your algorithm handles messages:
 
 ```rust
-use framework::handlers;
-use framework::community::PeerId;
+use distbench::handlers;
+use distbench::community::PeerId;
 
-#[framework::handlers]
+#[distbench::handlers]
 impl PingPong {
     // Handler for Ping messages (no return = fire-and-forget)
     async fn ping(&self, src: PeerId, msg: &Ping) {
@@ -291,15 +291,15 @@ Options:
 A simple request-response example located in `src/algorithms/echo.rs`:
 
 ```rust
-#[framework::message]
+#[distbench::message]
 struct Message {
     sender: String,
     message: String,
 }
 
-#[framework::state]
+#[distbench::state]
 pub struct Echo {
-    #[framework::config(default = false)]
+    #[distbench::config(default = false)]
     start_node: bool,
 }
 
@@ -321,7 +321,7 @@ impl Algorithm for Echo {
     }
 }
 
-#[framework::handlers]
+#[distbench::handlers]
 impl Echo {
     async fn message(&self, src: PeerId, msg: &Message) -> Option<String> {
         info!("Received: {}", msg.message);
@@ -444,7 +444,7 @@ Key architectural concepts:
 When implementing new algorithms:
 
 1. Create a new file in `src/algorithms/`
-2. Use the framework macros (`#[framework::message]`, `#[framework::state]`, `#[framework::handlers]`)
+2. Use the framework macros (`#[distbench::message]`, `#[distbench::state]`, `#[distbench::handlers]`)
 3. Implement the `Algorithm` trait
 4. Add a configuration file in `configs/`
 5. The build system will automatically register your algorithm
@@ -459,7 +459,7 @@ When implementing new algorithms:
 
 If you get "Unknown algorithm type" error:
 
-- Ensure your algorithm struct has `#[framework::state]` attribute
+- Ensure your algorithm struct has `#[distbench::state]` attribute
 - Verify the file is in `src/algorithms/` directory
 - Run `cargo clean` and rebuild
 
@@ -475,6 +475,6 @@ If nodes hang during startup:
 
 If your message handler isn't being invoked:
 
-- Verify you have `#[framework::handlers]` on the impl block
+- Verify you have `#[distbench::handlers]` on the impl block
 - Check that message type matches exactly (case-sensitive)
 - Ensure the handler signature matches the pattern: `async fn name(&self, src: PeerId, msg: &MsgType)`

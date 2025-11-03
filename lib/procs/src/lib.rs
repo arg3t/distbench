@@ -2,11 +2,11 @@
 //!
 //! This crate provides attribute macros that simplify writing distributed algorithms:
 //!
-//! - `#[framework::state]` - Transforms an algorithm state struct into a complete
+//! - `#[distbench::state]` - Transforms an algorithm state struct into a complete
 //!   algorithm implementation with configuration support
-//! - `#[framework::handlers]` - Generates message handler dispatch logic from
+//! - `#[distbench::handlers]` - Generates message handler dispatch logic from
 //!   handler methods
-//! - `#[framework::message]` - Derives common traits for message types
+//! - `#[distbench::message]` - Derives common traits for message types
 
 mod config_parsing;
 mod handler_parsing;
@@ -20,7 +20,7 @@ use proc_macro::TokenStream;
 /// Attribute macro for defining algorithm state.
 ///
 /// This macro transforms a struct into a complete algorithm state with:
-/// - Configuration field extraction via `#[framework::config]`
+/// - Configuration field extraction via `#[distbench::config]`
 /// - Generated Config struct
 /// - Automatic peer management
 /// - Self-termination support
@@ -28,12 +28,12 @@ use proc_macro::TokenStream;
 /// # Example
 ///
 /// ```ignore
-/// #[framework::state]
+/// #[distbench::state]
 /// pub struct MyAlgorithm<T: Transport> {
-///     #[framework::config]
+///     #[distbench::config]
 ///     required_field: u32,
 ///
-///     #[framework::config(default = 10)]
+///     #[distbench::config(default = 10)]
 ///     optional_field: u32,
 /// }
 /// ```
@@ -50,7 +50,7 @@ pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```ignore
-/// #[framework::handlers]
+/// #[distbench::handlers]
 /// impl<T: Transport> MyAlgorithm<T> {
 ///     async fn handle_message(&self, src: PeerId, msg: &MyMessage) {
 ///         // Handler implementation
@@ -73,7 +73,7 @@ pub fn handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```ignore
-/// #[framework::message]
+/// #[distbench::message]
 /// pub struct MyMessage {
 ///     payload: String,
 /// }

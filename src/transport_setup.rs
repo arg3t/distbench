@@ -3,9 +3,9 @@
 //! This module provides functions for setting up different transport types
 //! (offline channels, TCP, etc.) based on configuration.
 
-use framework::community::{Community, PeerId};
-use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
-use framework::transport::ConnectionManager;
+use distbench::community::{Community, PeerId};
+use distbench::transport::channel::{ChannelTransport, ChannelTransportBuilder};
+use distbench::transport::ConnectionManager;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -31,8 +31,8 @@ use crate::config::ConfigFile;
 /// # Examples
 ///
 /// ```ignore
-/// use framework::transport::channel::ChannelTransportBuilder;
-/// use framework::community::PeerId;
+/// use distbench::transport::channel::ChannelTransportBuilder;
+/// use distbench::community::PeerId;
 /// use distbench::transport_setup::setup_offline_transport;
 ///
 /// let builder = ChannelTransportBuilder::new();

@@ -7,18 +7,18 @@ use std::{
 
 use async_trait::async_trait;
 use common_macros::hash_map;
-use framework::{self, community::PeerId, Algorithm, SelfTerminating};
+use distbench::{self, community::PeerId, Algorithm, SelfTerminating};
 use log::{error, info};
 
-#[framework::message]
+#[distbench::message]
 struct Message {
     sender: String,
     message: String,
 }
 
-#[framework::state]
+#[distbench::state]
 pub struct Echo {
-    #[framework::config(default = false)]
+    #[distbench::config(default = false)]
     start_node: bool,
     messages_received: AtomicU64,
 }
@@ -57,7 +57,7 @@ impl Algorithm for Echo {
     }
 }
 
-#[framework::handlers]
+#[distbench::handlers]
 impl Echo {
     async fn message(&self, src: PeerId, msg: &Message) -> Option<String> {
         info!("Received message from {}: {}", src.to_string(), msg.message);

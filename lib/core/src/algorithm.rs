@@ -81,7 +81,7 @@ pub trait Named {
 /// # Examples
 ///
 /// ```ignore
-/// use framework::algorithm::{Algorithm, SelfTerminating};
+/// use distbench::algorithm::{Algorithm, SelfTerminating};
 ///
 /// struct MyAlgorithm {
 ///     // ... fields

@@ -2,24 +2,24 @@ use std::{collections::HashMap, fmt::Display, sync::Mutex};
 
 use async_trait::async_trait;
 use common_macros::hash_map;
-use framework::{self, community::PeerId, Algorithm, SelfTerminating};
+use distbench::{self, community::PeerId, Algorithm, SelfTerminating};
 use log::{error, info};
 use rand::Rng;
 use tokio::time::{sleep, Duration};
 
-#[framework::message]
+#[distbench::message]
 struct ElectionMessage {
     elector: u32,
 }
 
-#[framework::message]
+#[distbench::message]
 struct TerminationMessage {
     leader: u32,
 }
 
-#[framework::state]
+#[distbench::state]
 pub struct ChangRoberts {
-    #[framework::config]
+    #[distbench::config]
     node_id: u32,
 
     leader: Mutex<Option<u32>>,
@@ -63,7 +63,7 @@ impl Algorithm for ChangRoberts {
     }
 }
 
-#[framework::handlers]
+#[distbench::handlers]
 impl ChangRoberts {
     async fn election(&self, _: PeerId, msg: &ElectionMessage) {
         if let Some((_, next_peer)) = self.peers().next() {

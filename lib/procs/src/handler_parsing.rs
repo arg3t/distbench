@@ -130,7 +130,7 @@ pub(crate) fn generate_algorithm_handler_impl(
 
                     ::log::trace!("AlgorithmHandler::handle - Serializing reply of type {}", #reply_type_str);
                     let reply_bytes = format.serialize(&reply, &self.key, &self.id)
-                        .map_err(|e| ::framework::PeerError::SerializationFailed {
+                        .map_err(|e| ::distbench::PeerError::SerializationFailed {
                             message: format!("Failed to serialize reply of type '{}': {}", #reply_type_str, e)
                         })?;
 
@@ -144,7 +144,7 @@ pub(crate) fn generate_algorithm_handler_impl(
             if msg_type_id == #msg_type_str {
                 ::log::trace!("AlgorithmHandler::handle - Deserializing message of type {} from {:?}", #msg_type_str, src);
                 let msg = format.deserialize::<#msg_type>(&msg_bytes, keystore)
-                    .map_err(|e| ::framework::PeerError::DeserializationFailed {
+                    .map_err(|e| ::distbench::PeerError::DeserializationFailed {
                         message: format!("Failed to deserialize message of type '{}' from {:?}: {}", #msg_type_str, src, e)
                     })?;
 
@@ -155,20 +155,20 @@ pub(crate) fn generate_algorithm_handler_impl(
 
     quote! {
         #[async_trait::async_trait]
-        impl<F: ::framework::Format> ::framework::AlgorithmHandler<F> for #self_ty {
+        impl<F: ::distbench::Format> ::distbench::AlgorithmHandler<F> for #self_ty {
             async fn handle(
                 &self,
-                src: ::framework::community::PeerId,
+                src: ::distbench::community::PeerId,
                 msg_type_id: String,
                 msg_bytes: Vec<u8>,
-                keystore: ::framework::community::KeyStore,
+                keystore: ::distbench::community::KeyStore,
                 format: &F,
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-                use ::framework::Format;
+                use ::distbench::Format;
 
                 #(#handle_arms)*
 
-                Err(::framework::PeerError::UnknownMessageType {
+                Err(::distbench::PeerError::UnknownMessageType {
                     message: format!("Received unhandled message type '{}'", msg_type_id)
                 }.into())
             }

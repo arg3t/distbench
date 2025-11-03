@@ -1,6 +1,6 @@
 //! Configuration field parsing utilities.
 //!
-//! This module provides functionality for parsing `#[framework::config]` attributes
+//! This module provides functionality for parsing `#[distbench::config]` attributes
 //! on algorithm struct fields.
 
 use proc_macro2::TokenStream as TokenStream2;
@@ -14,11 +14,11 @@ pub(crate) struct ConfigField {
     pub default_value: Option<syn::Expr>,
 }
 
-/// Parses a field to check if it has a `#[framework::config]` attribute.
+/// Parses a field to check if it has a `#[distbench::config]` attribute.
 ///
 /// Supports two forms:
-/// - `#[framework::config]` - Required field
-/// - `#[framework::config(default = value)]` - Optional field with default
+/// - `#[distbench::config]` - Required field
+/// - `#[distbench::config(default = value)]` - Optional field with default
 ///
 /// # Arguments
 ///
@@ -36,41 +36,41 @@ pub(crate) fn parse_config_field(field: &Field) -> Result<Option<ConfigField>, s
 
     for attr in &field.attrs {
         let path_str = attr.into_token_stream().to_string().replace(" ", "");
-        let is_config = path_str.contains("framework::config");
+        let is_config = path_str.contains("distbench::config");
 
         if is_config {
             let default_value = match &attr.meta {
-                // Case 1: #[framework::config]
+                // Case 1: #[distbench::config]
                 syn::Meta::Path(_) => None,
 
-                // Case 2: #[framework::config(...)]
+                // Case 2: #[distbench::config(...)]
                 syn::Meta::List(meta_list) => {
                     if meta_list.tokens.is_empty() {
-                        // Case 2a: #[framework::config()]
+                        // Case 2a: #[distbench::config()]
                         None
                     } else {
                         // Attempt to parse the tokens as `Meta`
                         match syn::parse2::<syn::Meta>(meta_list.tokens.clone()) {
-                            // Case 2b: #[framework::config(default = ...)]
+                            // Case 2b: #[distbench::config(default = ...)]
                             Ok(syn::Meta::NameValue(nv)) => {
                                 if nv.path.is_ident("default") {
                                     Some(nv.value)
                                 } else {
-                                    // Case 2c: #[framework::config(other = ...)] - Invalid
+                                    // Case 2c: #[distbench::config(other = ...)] - Invalid
                                     return Err(syn::Error::new_spanned(
                                         nv.path,
                                         "Invalid config attribute. Expected `default = ...`",
                                     ));
                                 }
                             }
-                            // Case 2d: #[framework::config(foo)] or other invalid Meta
+                            // Case 2d: #[distbench::config(foo)] or other invalid Meta
                             Ok(other_meta) => {
                                 return Err(syn::Error::new_spanned(
                                     other_meta,
-                                    "Invalid config attribute format. Expected `#[framework::config(default = ...)]` or `#[framework::config]`"
+                                    "Invalid config attribute format. Expected `#[distbench::config(default = ...)]` or `#[distbench::config]`"
                                 ));
                             }
-                            // Case 2e: #[framework::config(1000)] or other invalid syntax
+                            // Case 2e: #[distbench::config(1000)] or other invalid syntax
                             Err(_) => {
                                 return Err(syn::Error::new_spanned(
                                     meta_list.tokens.clone(),
@@ -81,11 +81,11 @@ pub(crate) fn parse_config_field(field: &Field) -> Result<Option<ConfigField>, s
                     }
                 }
 
-                // Case 3: #[framework::config = ...] - Invalid
+                // Case 3: #[distbench::config = ...] - Invalid
                 syn::Meta::NameValue(nv) => {
                     return Err(syn::Error::new_spanned(
                         nv,
-                        "Invalid config attribute format. Use `#[framework::config]` or `#[framework::config(default = ...)]`"
+                        "Invalid config attribute format. Use `#[distbench::config]` or `#[distbench::config(default = ...)]`"
                     ));
                 }
             };
