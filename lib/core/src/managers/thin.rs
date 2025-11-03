@@ -1,13 +1,12 @@
-//! Connection manager implementations.
+//! Thin connection manager implementation.
 //!
-//! This module provides connection manager implementations that handle
-//! connection lifecycle and message sending.
+//! A lightweight connection manager that lazily establishes connections.
 
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::{Connection, ConnectionManager, Result, Transport};
+use crate::transport::{Connection, ConnectionManager, Result, Transport};
 
 /// A lightweight connection manager that lazily establishes connections.
 ///

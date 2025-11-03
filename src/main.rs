@@ -5,6 +5,7 @@ use distbench::transport_setup::setup_offline_transport;
 use framework::community::PeerId;
 use framework::transport::channel::{ChannelTransport, ChannelTransportBuilder};
 use framework::transport::ThinConnectionManager;
+use framework::JsonFormat;
 use log::{error, info};
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -111,19 +112,16 @@ async fn run_offline_mode(args: &CliArgs, config: &distbench::config::ConfigFile
             &node_id,
             &node_def.neighbours,
         );
+        let format = Arc::new(JsonFormat {});
 
-        let serve_future = start_node!(
+        let serve_handle = start_node!(
             args.algorithm,
             node_def.alg_config,
             node_id,
             community,
-            stop_signal.clone()
+            stop_signal.clone(),
+            format
         );
-
-        let node_id_for_task = node_id_str.clone();
-        let serve_handle =
-            tokio::spawn(framework::NODE_ID_CTX.scope(node_id_for_task, serve_future));
-
         handles.push(serve_handle);
     }
 

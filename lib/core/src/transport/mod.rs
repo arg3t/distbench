@@ -14,12 +14,11 @@ use std::{fmt::Display, hash::Hash, sync::Arc};
 
 pub mod channel;
 pub mod error;
-pub mod manager;
 pub mod tcp;
 
 use async_trait::async_trait;
 pub use error::{Result, TransportError};
-pub use manager::ThinConnectionManager;
+pub use crate::managers::ThinConnectionManager;
 use tokio::sync::Notify;
 
 use crate::algorithm::SelfTerminating;

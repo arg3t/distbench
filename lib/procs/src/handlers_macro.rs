@@ -74,7 +74,7 @@ pub(crate) fn algorithm_handlers_impl(item: TokenStream) -> TokenStream {
     // Generate only the impl block for Peer methods, not the struct itself
     let peer_methods_impl = quote! {
         #[async_trait::async_trait]
-        impl<T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name for #peer_name_impl<T, CM> {
+        impl<F: ::framework::Format, T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name for #peer_name_impl<F, T, CM> {
             #(#peer_methods)*
         }
     };

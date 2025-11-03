@@ -49,15 +49,19 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                     quote! {
                         async fn #method_name(&self, msg: &#msg_type) -> Result<(), ::framework::PeerError> {
                             use ::framework::transport::ConnectionManager;
+                            use ::framework::Format;
+
+                            let msg_bytes = self.format.serialize(msg)
+                                .map_err(|e| ::framework::PeerError::SerializationFailed {
+                                    message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
+                                })?;
+
                             let envelope = ::framework::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
-                                ::serde_json::to_vec(msg)
-                                    .map_err(|e| ::framework::PeerError::SerializationFailed {
-                                        message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
-                                    })?
+                                msg_bytes
                             );
 
-                            let envelope_bytes = ::serde_json::to_vec(&envelope)
+                            let envelope_bytes = self.format.serialize(&envelope)
                                 .map_err(|e| ::framework::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize envelope: {}", e)
                                 })?;
@@ -77,15 +81,19 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                     quote! {
                         async fn #method_name(&self, msg: &#msg_type) -> Result<#reply_type, ::framework::PeerError> {
                             use ::framework::transport::ConnectionManager;
+                            use ::framework::Format;
+
+                            let msg_bytes = self.format.serialize(msg)
+                                .map_err(|e| ::framework::PeerError::SerializationFailed {
+                                    message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
+                                })?;
+
                             let envelope = ::framework::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
-                                ::serde_json::to_vec(msg)
-                                    .map_err(|e| ::framework::PeerError::SerializationFailed {
-                                        message: format!("Failed to serialize message of type '{}': {}", #msg_type_str, e)
-                                    })?
+                                msg_bytes
                             );
 
-                            let envelope_bytes = ::serde_json::to_vec(&envelope)
+                            let envelope_bytes = self.format.serialize(&envelope)
                                 .map_err(|e| ::framework::PeerError::SerializationFailed {
                                     message: format!("Failed to serialize envelope: {}", e)
                                 })?;
@@ -95,7 +103,7 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
                                     message: format!("Failed to send message: {}", e)
                                 })?;
 
-                            let reply: #reply_type = ::serde_json::from_slice(&reply_bytes)
+                            let reply: #reply_type = self.format.deserialize(&reply_bytes)
                                 .map_err(|e| ::framework::PeerError::DeserializationFailed {
                                     message: format!("Failed to deserialize reply of type '{}': {}", #reply_type_str, e)
                                 })?;
@@ -111,7 +119,7 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 
 /// Generates the peer struct definition.
 ///
-/// Creates a struct like `AlgorithmNamePeer<T>` that wraps a connection manager.
+/// Creates a struct like `AlgorithmNamePeer<T, CM>` that wraps a connection manager and format.
 ///
 /// # Arguments
 ///
@@ -119,15 +127,17 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 pub(crate) fn generate_peer_struct(peer_name: &syn::Ident) -> TokenStream2 {
     quote! {
         #[derive(Clone)]
-        struct #peer_name<T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> {
+        struct #peer_name<F: ::framework::Format, T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> {
             connection_manager: ::std::sync::Arc<CM>,
+            format: ::std::sync::Arc<F>,
             _phantom: ::std::marker::PhantomData<T>,
         }
 
-        impl<T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name<T, CM> {
-            pub fn new(connection_manager: ::std::sync::Arc<CM>) -> Self {
+        impl<F: ::framework::Format, T: ::framework::transport::Transport, CM: ::framework::transport::ConnectionManager<T>> #peer_name<F, T, CM> {
+            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<F>) -> Self {
                 Self {
                     connection_manager,
+                    format,
                     _phantom: ::std::marker::PhantomData,
                 }
             }

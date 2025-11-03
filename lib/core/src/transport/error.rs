@@ -5,6 +5,7 @@
 use thiserror::Error;
 use tokio::sync::watch::error::SendError;
 
+use crate::encoding::FormatError;
 use crate::status::NodeStatus;
 
 /// Result type for transport operations.
@@ -53,6 +54,12 @@ pub enum TransportError {
     /// This is automatically converted from `serde_json::Error`.
     #[error("Serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
+
+    /// Failed to serialize or deserialize data with the configured format.
+    ///
+    /// This is automatically converted from `FormatError`.
+    #[error("Format error: {0}")]
+    FormatError(#[from] FormatError),
 
     /// An error occurred within the algorithm implementation.
     #[error("Algorithm error: {message}")]

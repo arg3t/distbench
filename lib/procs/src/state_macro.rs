@@ -146,15 +146,24 @@ fn generate_factory_impl(
     field_inits: &[TokenStream2],
 ) -> TokenStream2 {
     quote! {
-        impl<T: ::framework::transport::Transport + 'static, CM: ::framework::transport::ConnectionManager<T> + 'static> ::framework::AlgorithmFactory<T, CM> for #config_name {
+        impl<F, T, CM> ::framework::AlgorithmFactory<F, T, CM> for #config_name
+        where
+            T: ::framework::transport::Transport + 'static,
+            CM: ::framework::transport::ConnectionManager<T> + 'static,
+            F: ::framework::Format + 'static,
+        {
             type Algorithm = #alg_name;
 
-            fn build(self, community: &::framework::community::Community<T, CM>) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
+            fn build(
+                self,
+                format: ::std::sync::Arc<F>,
+                community: &::framework::community::Community<T, CM>,
+            ) -> Result<::std::sync::Arc<Self::Algorithm>, ::framework::ConfigError> {
                 let conn_managers = community.neighbours();
                 let peers: ::std::collections::HashMap<::framework::community::PeerId, std::sync::Arc<Box<dyn #peer_name>>> = conn_managers
                     .into_iter()
                     .map(|(peer_id, conn_manager)| {
-                        (peer_id, std::sync::Arc::new(Box::new(#peer_name_impl::new(conn_manager)) as Box<dyn #peer_name>))
+                        (peer_id, std::sync::Arc::new(Box::new(#peer_name_impl::new(conn_manager, format.clone())) as Box<dyn #peer_name>))
                     })
                     .collect();
 

@@ -10,8 +10,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{watch, Notify};
 
-use crate::algorithm::Algorithm;
+use crate::algorithm::{Algorithm, AlgorithmHandler};
 use crate::community::{Community, PeerId};
+use crate::encoding::{Format, JsonFormat};
 use crate::messages::NodeMessage;
 use crate::status::NodeStatus;
 use crate::transport::{self, ConnectionManager, Server, Transport, TransportError};
@@ -21,24 +22,28 @@ use crate::NODE_ID_CTX;
 /// Internal peer representation for node-to-node communication.
 ///
 /// Wraps a connection manager and provides methods to send node lifecycle messages.
-struct NodePeer<T, CM>
+struct NodePeer<T, CM, F>
 where
     T: Transport,
     CM: ConnectionManager<T>,
+    F: Format,
 {
     conn_manager: Arc<CM>,
+    format: Arc<F>,
     _phantom: PhantomData<T>,
 }
 
-impl<T, CM> NodePeer<T, CM>
+impl<T, CM, F> NodePeer<T, CM, F>
 where
     T: Transport,
     CM: ConnectionManager<T>,
+    F: Format,
 {
-    /// Creates a new `NodePeer` with the given connection manager.
-    pub fn new(conn_manager: Arc<CM>) -> Self {
+    /// Creates a new `NodePeer` with the given connection manager and format.
+    pub fn new(conn_manager: Arc<CM>, format: Arc<F>) -> Self {
         Self {
             conn_manager,
+            format,
             _phantom: PhantomData,
         }
     }
@@ -46,14 +51,14 @@ where
     /// Notifies the peer that this node has started.
     pub async fn started(&self) -> Result<(), TransportError> {
         self.conn_manager
-            .cast(serde_json::to_vec(&NodeMessage::Started)?)
+            .cast(self.format.serialize(&NodeMessage::Started)?)
             .await
     }
 
     /// Notifies the peer that this node has finished.
     pub async fn finished(&self) -> Result<(), TransportError> {
         self.conn_manager
-            .cast(serde_json::to_vec(&NodeMessage::Finished)?)
+            .cast(self.format.serialize(&NodeMessage::Finished)?)
             .await
     }
 
@@ -61,7 +66,7 @@ where
     #[allow(dead_code)]
     pub async fn get_pubkey(&self) -> Result<(), TransportError> {
         self.conn_manager
-            .cast(serde_json::to_vec(&NodeMessage::GetPubKey)?)
+            .cast(self.format.serialize(&NodeMessage::GetPubKey)?)
             .await
     }
 }
@@ -75,35 +80,47 @@ where
 /// # Type Parameters
 ///
 /// * `T` - The transport layer implementation (e.g., TCP, channels)
+/// * `CM` - The connection manager implementation
 /// * `A` - The algorithm implementation to execute on this node
+/// * `F` - The serialization format (defaults to JSON)
 ///
 /// # Examples
 ///
 /// ```ignore
-/// use framework::{Node, community::Community};
+/// use framework::{Node, community::Community, JsonFormat};
 /// use std::sync::Arc;
 ///
-/// // Assuming you have a community and algorithm set up
+/// // Using default JSON format
 /// let node = Node::new(
 ///     peer_id,
 ///     Arc::new(community),
 ///     Arc::new(algorithm),
 /// )?;
+///
+/// // Using a custom format
+/// let node = Node::with_format(
+///     peer_id,
+///     Arc::new(community),
+///     Arc::new(algorithm),
+///     BincodeFormat,
+/// )?;
 /// ```
-pub struct Node<T, CM, A>
+pub struct Node<T, CM, A, F = JsonFormat>
 where
     T: Transport,
     CM: ConnectionManager<T>,
     A: Algorithm,
+    F: Format,
 {
     id: PeerId,
     status: Arc<watch::Sender<NodeStatus>>,
     status_rx: Arc<tokio::sync::Mutex<watch::Receiver<NodeStatus>>>,
     community: Arc<Community<T, CM>>,
     algo: Arc<A>,
+    format: Arc<F>,
 }
 
-impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm> Clone for Node<T, CM, A> {
+impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm, F: Format> Clone for Node<T, CM, A, F> {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
@@ -111,23 +128,26 @@ impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm> Clone for Node<T, CM,
             status_rx: Arc::clone(&self.status_rx),
             community: Arc::clone(&self.community),
             algo: Arc::clone(&self.algo),
+            format: self.format.clone(),
         }
     }
 }
 
-impl<T, CM, A> Node<T, CM, A>
+impl<T, CM, A, F> Node<T, CM, A, F>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
-    A: Algorithm + 'static,
+    A: Algorithm + AlgorithmHandler<F> + 'static,
+    F: Format,
 {
-    /// Creates a new node with the specified ID, community, and algorithm.
+    /// Creates a new node with the specified ID, community, algorithm, and format.
     ///
     /// # Arguments
     ///
     /// * `id` - The unique identifier for this node
     /// * `community` - The community this node belongs to
     /// * `algo` - The algorithm instance to execute
+    /// * `format` - The serialization format to use
     ///
     /// # Errors
     ///
@@ -136,12 +156,14 @@ where
         id: PeerId,
         community: Arc<Community<T, CM>>,
         algo: Arc<A>,
+        format: Arc<F>,
     ) -> Result<Self, crate::error::ConfigError> {
         let (status_tx, status_rx) = watch::channel(NodeStatus::NotStarted);
         Ok(Self {
             id,
             community,
             algo,
+            format,
             status: Arc::new(status_tx),
             status_rx: Arc::new(tokio::sync::Mutex::new(status_rx)),
         })
@@ -169,7 +191,7 @@ where
                     let mut futures = Vec::new();
 
                     for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn);
+                        let peer = NodePeer::new(conn, self.format.clone());
                         futures.push(async move { peer.started().await });
                     }
                     futures::future::join_all(futures).await;
@@ -188,7 +210,7 @@ where
                 NodeStatus::Stopping => {
                     let mut futures = Vec::new();
                     for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn);
+                        let peer = NodePeer::new(conn, self.format.clone());
                         futures.push(async move { peer.finished().await });
                     }
 
@@ -276,11 +298,12 @@ where
 }
 
 #[async_trait]
-impl<T, CM, A> Server<T> for Node<T, CM, A>
+impl<T, CM, A, F> Server<T> for Node<T, CM, A, F>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
-    A: Algorithm + 'static,
+    A: Algorithm + AlgorithmHandler<F> + 'static,
+    F: Format,
 {
     async fn handle(&self, src: &T::Address, msg: Vec<u8>) -> transport::Result<Option<Vec<u8>>> {
         let peer_id = self
@@ -290,12 +313,12 @@ where
                 addr: src.to_string(),
             })?;
 
-        let msg = serde_json::from_slice(&msg)?;
+        let msg = self.format.deserialize(&msg)?;
 
         let result = match msg {
             NodeMessage::Algorithm(msg_type, msg) => self
                 .algo
-                .handle(peer_id, msg_type, msg)
+                .handle(peer_id, msg_type, msg, &self.format)
                 .await
                 .map_err(|e| TransportError::AlgorithmError {
                     message: e.to_string(),
@@ -340,11 +363,12 @@ where
 }
 
 #[async_trait]
-impl<T, CM, A> SelfTerminating for Node<T, CM, A>
+impl<T, CM, A, F> SelfTerminating for Node<T, CM, A, F>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
-    A: Algorithm + 'static,
+    A: Algorithm + AlgorithmHandler<F> + 'static,
+    F: Format,
 {
     async fn terminate(&self) {
         let _ = self.status.send(NodeStatus::Stopping);

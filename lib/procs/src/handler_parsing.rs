@@ -125,7 +125,7 @@ pub(crate) fn generate_algorithm_handler_impl(
                 quote! {
                     let reply: #reply_type = #base_call;
 
-                    let reply_bytes = ::serde_json::to_vec(&reply)
+                    let reply_bytes = format.serialize(&reply)
                         .map_err(|e| ::framework::PeerError::SerializationFailed {
                             message: format!("Failed to serialize reply of type '{}': {}", #reply_type_str, e)
                         })?;
@@ -137,7 +137,7 @@ pub(crate) fn generate_algorithm_handler_impl(
 
         handle_arms.push(quote! {
             if msg_type_id == #msg_type_str {
-                let msg = ::serde_json::from_slice::<#msg_type>(&msg_bytes)
+                let msg = format.deserialize::<#msg_type>(&msg_bytes)
                     .map_err(|e| ::framework::PeerError::DeserializationFailed {
                         message: format!("Failed to deserialize message of type '{}' from {:?}: {}", #msg_type_str, src, e)
                     })?;
@@ -149,13 +149,16 @@ pub(crate) fn generate_algorithm_handler_impl(
 
     quote! {
         #[async_trait::async_trait]
-        impl ::framework::AlgorithmHandler for #self_ty {
+        impl<F: ::framework::Format> ::framework::AlgorithmHandler<F> for #self_ty {
             async fn handle(
                 &self,
                 src: ::framework::community::PeerId,
                 msg_type_id: String,
-                msg_bytes: Vec<u8>
+                msg_bytes: Vec<u8>,
+                format: &F,
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+                use ::framework::Format;
+
                 #(#handle_arms)*
 
                 Err(::framework::PeerError::UnknownMessageType {

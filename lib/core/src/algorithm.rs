@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::community::{Community, PeerId};
+use crate::encoding::Format;
 use crate::error::ConfigError;
 use crate::transport::{ConnectionManager, Transport};
 
@@ -14,8 +15,12 @@ use crate::transport::{ConnectionManager, Transport};
 ///
 /// Implementors of this trait define how their algorithm processes messages
 /// received from other nodes.
+///
+/// # Type Parameters
+///
+/// * `F` - The serialization format to use for message encoding/decoding
 #[async_trait]
-pub trait AlgorithmHandler {
+pub trait AlgorithmHandler<F: Format> {
     /// Handles an incoming message from a peer.
     ///
     /// # Arguments
@@ -23,6 +28,7 @@ pub trait AlgorithmHandler {
     /// * `src` - The ID of the peer that sent the message
     /// * `msg_type_id` - The type identifier for the message (used for deserialization)
     /// * `msg_bytes` - The serialized message payload
+    /// * `format` - The serialization format to use for encoding/decoding
     ///
     /// # Returns
     ///
@@ -34,6 +40,7 @@ pub trait AlgorithmHandler {
         src: PeerId,
         msg_type_id: String,
         msg_bytes: Vec<u8>,
+        format: &F,
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
@@ -56,25 +63,20 @@ pub trait SelfTerminating {
 
 /// The main trait that distributed algorithms must implement.
 ///
-/// This trait combines message handling and self-termination capabilities,
-/// and provides lifecycle hooks for algorithm initialization and cleanup.
-///
-/// # Type Parameters
-///
-/// * `T` - The transport layer implementation
+/// This trait combines self-termination capabilities and provides lifecycle
+/// hooks for algorithm initialization and cleanup.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// use framework::algorithm::{Algorithm, AlgorithmHandler, SelfTerminating};
-/// use framework::transport::Transport;
+/// use framework::algorithm::{Algorithm, SelfTerminating};
 ///
-/// struct MyAlgorithm<T: Transport> {
+/// struct MyAlgorithm {
 ///     // ... fields
 /// }
 ///
 /// #[async_trait]
-/// impl<T: Transport> Algorithm<T> for MyAlgorithm<T> {
+/// impl Algorithm for MyAlgorithm {
 ///     async fn on_start(&self) {
 ///         // Initialize algorithm state
 ///     }
@@ -85,7 +87,7 @@ pub trait SelfTerminating {
 /// }
 /// ```
 #[async_trait]
-pub trait Algorithm: AlgorithmHandler + Send + Sync + SelfTerminating {
+pub trait Algorithm: Send + Sync + SelfTerminating {
     /// Called when the algorithm starts running.
     ///
     /// This is invoked after all nodes in the community have synchronized
@@ -107,7 +109,7 @@ pub trait Algorithm: AlgorithmHandler + Send + Sync + SelfTerminating {
 /// # Type Parameters
 ///
 /// * `T` - The transport layer implementation
-pub trait AlgorithmFactory<T: Transport, CM: ConnectionManager<T>> {
+pub trait AlgorithmFactory<F: Format, T: Transport, CM: ConnectionManager<T>> {
     /// The type of algorithm this factory produces.
     type Algorithm: Algorithm;
 
@@ -115,6 +117,7 @@ pub trait AlgorithmFactory<T: Transport, CM: ConnectionManager<T>> {
     ///
     /// # Arguments
     ///
+    /// * `format` - The serialization format to use for encoding/decoding
     /// * `community` - The community context in which the algorithm will run
     ///
     /// # Returns
@@ -125,5 +128,9 @@ pub trait AlgorithmFactory<T: Transport, CM: ConnectionManager<T>> {
     ///
     /// Returns a `ConfigError` if the algorithm cannot be constructed
     /// (e.g., missing required configuration fields).
-    fn build(self, community: &Community<T, CM>) -> Result<Arc<Self::Algorithm>, ConfigError>;
+    fn build(
+        self,
+        format: Arc<F>,
+        community: &Community<T, CM>,
+    ) -> Result<Arc<Self::Algorithm>, ConfigError>;
 }
