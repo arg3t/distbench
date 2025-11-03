@@ -136,7 +136,7 @@ impl<T: Transport> RingElection<T> {
                 .await
             {
                 Ok(_) => {}
-                Err(e) => println!(
+                Err(e) => error!(
                     "[Node {}] Error sending termination message: {}",
                     self.node_id, e
                 ),

@@ -5,7 +5,8 @@ members = [
 ]
 
 [package]
-name = "distributed-systems-assignment"
+name = "distributed-algorithms-workbench"
+authors = ["Yigit Colakoglu <root@yigit.run>"]
 version = "0.1.0"
 edition = "2021"
 
