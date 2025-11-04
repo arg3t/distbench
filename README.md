@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 
-Distbench handles the infrastructure concerns (networking, message passing, node lifecycle) so you can focus on algorithm logic. It was built for the lab assignments in TU Delft’s [Distributed Algorithms](https://studyguide.tudelft.nl/courses/study-guide/educations/14765) course in the Computer Science master’s program.
+Distbench handles the infrastructure concerns (networking, message passing, node lifecycle) so you can focus on algorithm logic. It was built for the lab assignments in TU Delft’s [Distributed Algorithms](https://studyguide.tudelft.nl/courses/study-guide/educations/14765) course in the Computer Science master’s program. A [python](./py) version is also available.
 
 ## ✨ Features
 

@@ -3,6 +3,8 @@
 //! This module provides functionality for setting up structured, colored logging
 //! with node-specific context.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use ansi_term::Colour::{Blue, Cyan, Green, Purple, Red, Yellow};
 use log::Level;
 
@@ -46,7 +48,22 @@ pub fn init_logger(verbose: u8) {
             };
 
             let node_id = distbench::get_node_context()
-                .map(|id| Cyan.paint(format!("[{}] ", id)).to_string())
+                .map(|id| {
+                    let mut hasher = DefaultHasher::new();
+                    id.hash(&mut hasher);
+                    let hash = hasher.finish();
+
+                    let color = match hash % 6 {
+                        0 => Cyan,
+                        1 => Green,
+                        2 => Yellow,
+                        3 => Blue,
+                        4 => Purple,
+                        5 => Red,
+                        _ => unreachable!(),
+                    };
+                    color.paint(format!("[{}] ", id)).to_string()
+                })
                 .unwrap_or_default();
 
             writeln!(buf, "{ts} {node_id}{level_str}: {}", record.args())

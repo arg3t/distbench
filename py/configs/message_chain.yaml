@@ -1,0 +1,11 @@
+n1:
+  is_initiator: true
+  max_hops: 3
+
+n2:
+  is_initiator: false
+  max_hops: 3
+
+n3:
+  is_initiator: false
+  max_hops: 3
