@@ -38,17 +38,15 @@ uv sync
 
 ### Running an Example
 
-Run the Bracha broadcast algorithm in `local` mode (spawns all nodes on your machine):
+Run the Echo broadcast algorithm in `local` mode (spawns all nodes on your machine):
 
 ```bash
-# Run Bracha's broadcast with 4 nodes, verbose logging
-uv run distbench -c configs/bracha.yaml -a bracha --mode local -v
+uv run distbench -c configs/echo.yaml -a echo --mode local -v
 ```
 
 Run the Chang-Roberts leader election algorithm in `offline` mode (single process):
 
 ```bash
-# Run Chang-Roberts with 3 nodes
 uv run distbench -c configs/chang_roberts.yaml -a chang_roberts --mode offline -v
 ```
 
@@ -58,7 +56,6 @@ The framework automatically discovers any algorithm in the `distbench/algorithms
 
   - **[echo](https://www.google.com/search?q=distbench/algorithms/echo.py)** - Simple request-response pattern.
   - **[chang\_roberts](https://www.google.com/search?q=distbench/algorithms/chang_roberts.py)** - Ring-based leader election.
-  - **[bracha](https://www.google.com/search?q=distbench/algorithms/bracha.py)** - Byzantine reliable broadcast.
   - **[message\_chain](https://www.google.com/search?q=distbench/algorithms/message_chain.py)** - Demonstrates cryptographic signatures and message forwarding.
 
 ## 📖 Documentation
@@ -93,31 +90,18 @@ Options:
 Create a YAML configuration file. The format is compatible with the Rust version.
 
 ```yaml
-# configs/bracha.yaml
+# configs/echo.yaml
 n1:
-  neighbours: []  # Empty list means fully connected
-  host: "127.0.0.1"
-  port: 5001
-  is_sender: true
-  broadcast_value: "TestValue123"
+  neighbours: [] # Empty list means fully connected
+  start_node: true
 
 n2:
   neighbours: []
-  host: "127.0.0.1"
-  port: 5002
-  is_sender: false
+  start_node: false
 
 n3:
   neighbours: []
-  host: "127.0.0.1"
-  port: 5003
-  is_sender: false
-
-n4:
-  neighbours: []
-  host: "127.0.0.1"
-  port: 5004
-  is_sender: false
+  start_node: false
 ```
 
 **Key Feature**: An empty `neighbours: []` list creates a **fully connected topology**, automatically connecting the node to all other nodes defined in the file.
@@ -129,7 +113,6 @@ distbench/
 ├── distbench/              # The main Python package
 │   ├── algorithms/         # Algorithm implementations (auto-scanned)
 │   │   ├── __init__.py     # (Handles automatic registration)
-│   │   ├── bracha.py
 │   │   └── ...
 │   ├── encoding/           # Serialization (json, msgpack)
 │   │   ├── format.py
@@ -151,7 +134,6 @@ distbench/
 │   ├── node.py             # Node lifecycle and coordination
 │   └── signing.py          # Ed25519 signing and Signed[T] wrapper
 ├── configs/                # Example YAML configurations
-│   ├── bracha.yaml
 │   ├── chang_roberts.yaml
 │   └── ...
 ├── pyproject.toml          # Project definition and dependencies
@@ -191,4 +173,3 @@ This port maintains the same core architecture but adapts it to be idiomatic Pyt
 ## 📄 License
 
 This project is licensed under the MIT License.
-

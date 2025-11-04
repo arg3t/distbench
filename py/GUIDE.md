@@ -317,7 +317,6 @@ Study these examples to learn different patterns:
 
   - **[echo](https://www.google.com/search?q=distbench/algorithms/echo.py)**: Request-response, `Signed[T]`, `report()`.
   - **[chang\_roberts](https://www.google.com/search?q=distbench/algorithms/chang_roberts.py)**: Ring logic, ID comparison, message forwarding, termination.
-  - **[bracha](https://www.google.com/search?q=distbench/algorithms/bracha.py)**: Byzantine broadcast, threshold logic (`self.N()`), three-phase protocol.
   - **[message\_chain](https://www.google.com/search?q=distbench/algorithms/message_chain.py)**: Forwarding chains, `Signed[T]` in collections (`list[Signed[...]]`), deduplication.
 
 ## Execution Modes & Testing
@@ -327,7 +326,7 @@ Study these examples to learn different patterns:
 Runs all nodes in a **single process** using in-memory queues.
 
 ```bash
-uv run distbench -c configs/bracha.yaml -a bracha --mode offline
+uv run distbench -c configs/echo.yaml -a echo --mode offline
 ```
 
   - **Pros**: Extremely fast, deterministic, easy to debug with one log stream.
@@ -339,7 +338,7 @@ uv run distbench -c configs/bracha.yaml -a bracha --mode offline
 Spawns all nodes as separate **OS processes** on `localhost`, communicating over TCP.
 
 ```bash
-uv run distbench -c configs/bracha.yaml -a bracha --mode local --port-base 10000
+uv run distbench -c configs/echo.yaml -a echo --mode local --port-base 10000
 ```
 
   - **Pros**: Realistic simulation of network behavior (serialization, TCP) without a cluster.
@@ -352,10 +351,10 @@ Runs a **single node** in one process, expecting to connect to other nodes over 
 
 ```bash
 # Terminal 1
-uv run distbench -c configs/bracha.yaml -a bracha --mode network --id n1
+uv run distbench -c configs/echo.yaml -a echo --mode network --id n1
 
 # Terminal 2
-uv run distbench -c configs/bracha.yaml -a bracha --mode network --id n2
+uv run distbench -c configs/echo.yaml -a echo --mode network --id n2
 
 # ...and so on for n3, n4...
 ```

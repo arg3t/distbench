@@ -33,12 +33,12 @@ cargo build --release
 
 ### Running an Example
 
-Run the Bracha broadcast algorithm:
+Run a basic Echo algorithm:
 
 ```bash
 cargo run --release -- \
-  --config configs/bracha_config.yaml \
-  --algorithm Bracha \
+  --config configs/echo.yaml \
+  --algorithm Echo \
   --mode offline \
   --timeout 5
 ```
@@ -47,7 +47,6 @@ cargo run --release -- \
 
 - **[Echo](src/algorithms/echo.rs)** - Simple request-response pattern
 - **[Chang-Roberts](src/algorithms/chang_roberts.rs)** - Ring-based leader election
-- **[Bracha Broadcast](src/algorithms/bracha.rs)** - Byzantine reliable broadcast
 - **[Message Chain](src/algorithms/message_chain.rs)** - Demonstrates cryptographic signatures
 
 ## 📖 Documentation

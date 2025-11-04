@@ -288,7 +288,7 @@ pub struct ByzantineConsensus {
 
 You can chain signatures: `Signed<Signed<M>>` for multi-level authentication.
 
-See **[Bracha Broadcast](src/algorithms/bracha.rs)** for an example of Byzantine algorithms without signatures, and **[Message Chain](src/algorithms/message_chain.rs)** for signature usage patterns.
+See **[Message Chain](src/algorithms/message_chain.rs)** for signature usage patterns.
 
 ## Configuration
 
@@ -340,13 +340,6 @@ Study these examples to learn different patterns:
 - **Pattern:** Ring-based coordination
 - **Concepts:** ID comparison, message forwarding, termination detection
 - **Complexity:** Intermediate
-
-### [Bracha Broadcast](src/algorithms/bracha.rs)
-
-- **Pattern:** Byzantine reliable broadcast
-- **Concepts:** Threshold calculations, three-phase protocol, N() usage
-- **Complexity:** Advanced
-- **Note:** Uses unsigned messages for simplicity
 
 ### [Message Chain](src/algorithms/message_chain.rs)
 
