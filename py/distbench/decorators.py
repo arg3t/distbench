@@ -7,6 +7,7 @@ This module provides decorators that replace Rust's procedural macros:
 """
 
 import inspect
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,13 +15,15 @@ from typing import Any
 from distbench.algorithm import Algorithm, Peer
 from distbench.community import PeerId
 from distbench.encoding.format import Format
+from distbench.signing import Keystore, recursive_verify
 
 
 def message(cls: type[Any]) -> type[Any]:
     """Decorator to mark a class as a message type.
 
     This automatically makes the class a dataclass if it isn't already,
-    and marks it for use in the message handling system.
+    and marks it for use in the message handling system. It also adds
+    a verify() method that recursively verifies all Signed fields.
 
     Usage:
         @message
@@ -32,11 +35,30 @@ def message(cls: type[Any]) -> type[Any]:
         cls: Class to decorate
 
     Returns:
-        Decorated class (as a dataclass)
+        Decorated class (as a dataclass with verify() method)
     """
     # Make it a dataclass if not already
     if not hasattr(cls, "__dataclass_fields__"):
         cls = dataclass(cls)
+
+    # Add verify() method that recursively verifies all fields
+    def verify(self: Any, keystore: Keystore) -> bool:
+        """Verify all Signed fields in this message.
+
+        Args:
+            keystore: Object that can provide public keys for verification
+
+        Returns:
+            True if all nested Signed messages verify successfully, False otherwise
+        """
+        # Verify each field
+        for field_name in self.__dataclass_fields__:
+            field_value = getattr(self, field_name)
+            if not recursive_verify(field_value, keystore):
+                return False
+        return True
+
+    cls.verify = verify  # type: ignore
 
     # Mark as a message class
     cls.__message__ = True  # type: ignore
@@ -228,6 +250,13 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
 
         handler_info = handler_methods[msg_type_id]
         msg_obj = format.deserialize(msg_bytes, handler_info["msg_type"])
+
+        # Verify all signatures in the message
+        if not recursive_verify(msg_obj, self.community):
+            logging.warning(
+                f"Verification failed for {msg_type_id} from {src}, dropping message"
+            )
+            return None
 
         result = await handler_info["method"](self, src, msg_obj)
 

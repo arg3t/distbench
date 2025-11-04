@@ -107,7 +107,7 @@ pub trait Verifiable<M: Digest> {
     fn verify(self, keystore: &KeyStore) -> Result<M, PeerError>;
 }
 
-impl<M: Digest> Verifiable<Signed<M>> for Signed<M> {
+impl<M: Digest + Verifiable<M>> Verifiable<Signed<M>> for Signed<M> {
     /// Verifies the signature using the public key associated with `self.peer`.
     ///
     /// The public key is retrieved from the `keystore`.
@@ -115,10 +115,11 @@ impl<M: Digest> Verifiable<Signed<M>> for Signed<M> {
     /// # Errors
     ///
     /// Returns `Err(PeerError)` if the peer is unknown or the signature is invalid.
-    fn verify(self, keystore: &KeyStore) -> Result<Signed<M>, PeerError> {
+    fn verify(mut self, keystore: &KeyStore) -> Result<Signed<M>, PeerError> {
         let public_key = keystore.get(&self.peer).ok_or(PeerError::UnknownPeer {
             peer_id: self.peer.to_string(),
         })?;
+        self.value = self.value.verify(keystore)?;
 
         if public_key.verify(&self.value.digest(), &self.signature) {
             Ok(self)

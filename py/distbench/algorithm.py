@@ -9,11 +9,11 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
-from distbench.community import PeerId
+from distbench.community import Community, PeerId
 from distbench.connection import ConnectionManager
 from distbench.encoding.format import Format
 from distbench.messages import NodeMessage
-from distbench.signing import KeyPair, Signed
+from distbench.signing import KeyPair, Keystore, Signed, recursive_verify
 from distbench.transport.base import Address, Transport
 
 T = TypeVar("T")
@@ -33,6 +33,7 @@ class Peer(Generic[A, TR]):
         peer_id: PeerId,
         conn_manager: ConnectionManager[TR, A],
         format: Format,
+        keystore: Keystore | None = None,
     ) -> None:
         """Initialize a peer proxy.
 
@@ -40,10 +41,12 @@ class Peer(Generic[A, TR]):
             peer_id: ID of the target peer
             conn_manager: Connection manager for this peer
             format: Serialization format to use for messages
+            keystore: Optional keystore for verifying signed responses
         """
         self.peer_id = peer_id
         self.conn_manager = conn_manager
         self.format = format
+        self.keystore = keystore
         self._handlers: dict[str, type[Any]] = {}
 
     def _register_handler(self, name: str, msg_class: type[Any]) -> None:
@@ -87,10 +90,21 @@ class Peer(Generic[A, TR]):
             if response_bytes and len(response_bytes) > 0:
                 # Deserialize response with proper type
                 if response_type is not None:
-                    return self.format.deserialize(response_bytes, response_type)
+                    response = self.format.deserialize(response_bytes, response_type)
                 else:
                     # Fallback to dict if no type specified
-                    return self.format.deserialize(response_bytes, dict)
+                    response = self.format.deserialize(response_bytes, dict)
+
+                # Verify all signatures in the response
+                if self.keystore is not None:
+                    if not recursive_verify(response, self.keystore):
+                        import logging
+                        logging.warning(
+                            f"Verification failed for response from {self.peer_id}, dropping"
+                        )
+                        return None
+
+                return response
             return None
         else:
             await self.conn_manager.cast(node_msg)
@@ -110,6 +124,7 @@ class Algorithm(ABC):
         self._node_id: PeerId | None = None
         self._total_nodes: int = 0
         self._keypair: KeyPair | None = None
+        self.community: Keystore | None = None
 
     async def on_start(self) -> None:  # noqa: B027
         """Called when all nodes are ready and synchronized.

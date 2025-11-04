@@ -186,7 +186,7 @@ async def run_offline(
         )
 
         peers = {
-            pid: Peer(pid, community.connection(pid), format_impl)  # type: ignore
+            pid: Peer(pid, community.connection(pid), format_impl, community)  # type: ignore
             for pid, conn in community.connections.items()
         }
 
@@ -327,7 +327,7 @@ async def run_local(
         )
 
         peers = {
-            pid: Peer(pid, community.connection(pid), format_impl)  # type: ignore
+            pid: Peer(pid, community.connection(pid), format_impl, community)  # type: ignore
             for pid, conn in community.connections.items()
         }
 
@@ -410,7 +410,7 @@ async def run_network(
     )
 
     peers = {
-        pid: Peer(pid, community.connection(pid), format_impl)  # type: ignore
+        pid: Peer(pid, community.connection(pid), format_impl, community)  # type: ignore
         for pid, conn in community.connections.items()
     }
 

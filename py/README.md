@@ -141,7 +141,7 @@ distbench/
 └── GUIDE.md                # How to implement algorithms
 ```
 
-## 🔧 Development & Testing
+## 🔧 Development
 
 This project uses `ruff` for linting/formatting and `mypy` for type checking.
 

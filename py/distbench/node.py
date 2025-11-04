@@ -77,6 +77,7 @@ class Node(Server, Generic[T, A]):
         self.algorithm._set_node_id(node_id)
         self.algorithm._set_total_nodes(len(community.peers) + 1)  # +1 for self
         self.algorithm._set_keypair(self.keypair)
+        self.algorithm.community = community
 
         logger.trace(f"Node {node_id} initialized")
 
@@ -271,6 +272,7 @@ class Node(Server, Generic[T, A]):
         """
         # Set the node ID in context for logging
         current_node_id.set(str(self.id))
+        await self.community.add_key(self.id, self.keypair.public_key_bytes())
 
         logger.trace(f"Node {self.id} starting...")
 

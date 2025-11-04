@@ -120,20 +120,6 @@ Quick overview:
 5. Create a configuration file
 6. Run with `cargo run -- --config config.yaml --algorithm YourAlgorithm`
 
-## 🧪 Testing
-
-Run the test suite:
-
-```bash
-cargo test
-```
-
-Run offline mode tests (deterministic, fast):
-
-```bash
-cargo run -- --config configs/echo_config.yaml --algorithm Echo --mode offline
-```
-
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

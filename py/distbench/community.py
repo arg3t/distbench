@@ -192,7 +192,7 @@ class Community(Generic[T, A]):
             self._keys[peer_id] = public_key
             logger.trace(f"Stored public key for peer {peer_id}")
 
-    async def get_key(self, peer_id: PeerId) -> bytes | None:
+    def get_key(self, peer_id: PeerId) -> bytes | None:
         """Retrieve a peer's cryptographic public key.
 
         Args:
@@ -201,8 +201,7 @@ class Community(Generic[T, A]):
         Returns:
             Public key bytes, or None if not found
         """
-        async with self._keystore_lock:
-            return self._keys.get(peer_id)
+        return self._keys.get(peer_id)
 
     async def has_all_keys(self) -> bool:
         """Check if we have public keys for all known peers.
