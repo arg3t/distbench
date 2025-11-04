@@ -27,7 +27,6 @@
 //! node.start(stop_signal).await?;
 //! ```
 //!
-
 pub mod algorithm;
 pub mod community;
 pub mod crypto;

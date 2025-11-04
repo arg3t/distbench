@@ -133,9 +133,6 @@ distbench/
 │   ├── messages.py         # Node-level message envelope
 │   ├── node.py             # Node lifecycle and coordination
 │   └── signing.py          # Ed25519 signing and Signed[T] wrapper
-├── configs/                # Example YAML configurations
-│   ├── chang_roberts.yaml
-│   └── ...
 ├── pyproject.toml          # Project definition and dependencies
 ├── README.md               # This file
 └── GUIDE.md                # How to implement algorithms

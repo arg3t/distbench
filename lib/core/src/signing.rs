@@ -131,6 +131,33 @@ impl<M: Digest + Verifiable<M>> Verifiable<Signed<M>> for Signed<M> {
     }
 }
 
+/* Commented out because specialization is not stable yet
+   and this implementation is not needed for the current use case.
+   It can be uncommented when specialization becomes stable or if needed in the future.
+impl<M: Digest> Verifiable<Signed<M>> for Signed<M> {
+    /// Verifies the signature using the public key associated with `self.peer`.
+    ///
+    /// The public key is retrieved from the `keystore`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(PeerError)` if the peer is unknown or the signature is invalid.
+    default fn verify(mut self, keystore: &KeyStore) -> Result<Signed<M>, PeerError> {
+        let public_key = keystore.get(&self.peer).ok_or(PeerError::UnknownPeer {
+            peer_id: self.peer.to_string(),
+        })?;
+
+        if public_key.verify(&self.value.digest(), &self.signature) {
+            Ok(self)
+        } else {
+            Err(PeerError::InvalidSignature {
+                peer_id: self.peer.to_string(),
+            })
+        }
+    }
+}
+*/
+
 impl<M: Digest> AsRef<Signed<M>> for Signed<M> {
     fn as_ref(&self) -> &Signed<M> {
         self
