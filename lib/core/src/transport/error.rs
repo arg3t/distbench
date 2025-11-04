@@ -20,14 +20,14 @@ pub enum TransportError {
     /// Failed to connect to the specified address.
     ///
     /// This typically occurs when the peer is not reachable or not listening.
-    #[error("Failed to connect to address '{address}'")]
-    ConnectionFailed { address: String },
+    #[error("Failed to connect to address '{address}': {message}")]
+    ConnectionFailed { address: String, message: String },
 
     /// Failed to bind or listen on the specified address.
     ///
     /// This typically occurs when the address is already in use or invalid.
-    #[error("Failed to listen on address '{address}'")]
-    ListenFailed { address: String },
+    #[error("Failed to listen on address '{address}': {message}")]
+    ListenFailed { address: String, message: String },
 
     /// The provided address has an invalid format.
     #[error("Invalid address format: {message}")]

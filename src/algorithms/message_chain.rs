@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use common_macros::hash_map;
 use distbench::{self, community::PeerId, signing::Signed, Algorithm, SelfTerminating};
-use log::info;
+use log::{error, info};
 
 /// A message that contains a payload and can be signed
 #[distbench::message]
@@ -209,7 +209,7 @@ impl MessageChain {
                 })
                 .await
             {
-                info!("[{}] Error forwarding to {}: {}", self.id(), peer_id, e);
+                error!("[{}] Error forwarding to {}: {}", self.id(), peer_id, e);
             }
         }
 

@@ -288,6 +288,7 @@ where
         format: Arc<F>,
     ) -> Result<Self, crate::error::ConfigError> {
         let (status_tx, status_rx) = watch::channel(NodeStatus::NotStarted);
+        community.set_pubkey(id.clone(), key.pubkey());
 
         Ok(Self {
             id,
