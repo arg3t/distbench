@@ -462,7 +462,7 @@ cargo test
 
 - Use `info!`, `debug!`, and `trace!` logging liberally
 - Test in offline mode first
-- Check `elapsed_time` in reports (0 means proper termination)
+- Check `elapsed_time` in reports
 
 ## Troubleshooting
 
