@@ -6,47 +6,13 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use crate::community::{Community, KeyStore, PeerId};
 use crate::crypto::PrivateKey;
 use crate::encoding::Format;
 use crate::error::ConfigError;
-use crate::transport::{ConnectionManager, Transport};
-
-/// Trait for handling incoming messages in a distributed algorithm.
-///
-/// Implementors of this trait define how their algorithm processes messages
-/// received from other nodes.
-///
-/// # Type Parameters
-///
-/// * `F` - The serialization format to use for message encoding/decoding
-#[async_trait]
-pub trait AlgorithmHandler<F: Format> {
-    /// Handles an incoming message from a peer.
-    ///
-    /// # Arguments
-    ///
-    /// * `src` - The ID of the peer that sent the message
-    /// * `msg_type_id` - The type identifier for the message (used for deserialization)
-    /// * `msg_bytes` - The serialized message payload
-    /// * `format` - The serialization format to use for encoding/decoding
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Some(response))` - A response message to send back to the sender
-    /// * `Ok(None)` - No response needed (for cast messages)
-    /// * `Err(e)` - An error occurred while processing the message
-    async fn handle(
-        &self,
-        src: PeerId,
-        msg_type_id: String,
-        msg_bytes: Vec<u8>,
-        keystore: KeyStore,
-        format: &F,
-    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
-}
+use crate::transport::{ConnectionManager, Transport, TransportError};
 
 /// Trait for algorithms that can self-terminate.
 ///
@@ -71,6 +37,83 @@ pub trait SelfTerminating {
 pub trait Named {
     /// Returns the name of the algorithm.
     fn name(&self) -> &str;
+}
+
+impl Named for () {
+    fn name(&self) -> &str {
+        "()"
+    }
+}
+
+/// Trait for chainable structs that can be stacked on top of each other.
+/// # Type Parameters
+///
+/// * `T` - The type of the next struct in the chain
+///
+/// Algorithms implement this trait in so that they can be stacked on top of each other (layered architecture)
+pub trait Chainable<F: Format> {
+    fn next(&self) -> Option<Arc<dyn AlgorithmHandler<F> + 'static>>;
+}
+
+impl<F: Format> Chainable<F> for () {
+    fn next(&self) -> Option<Arc<dyn AlgorithmHandler<F>>> {
+        None
+    }
+}
+
+/// A trait for handling delivery of a message at any layer.
+///
+/// # Arguments
+/// * `peer_id` - The ID of the peer that sent the message
+/// * `msg_type_id` - The type identifier for the message (used for deserialization)
+/// * `msg` - The message bytes
+/// * `layer` - The layer at which the message is being delivered
+///
+/// # Returns
+/// A `Result` containing the response message bytes if applicable, or an error if the message cannot be delivered.
+#[async_trait]
+pub trait DeliveryHandler: Send + Sync {
+    async fn deliver(
+        &self,
+        peer_id: PeerId,
+        msg_type_id: String,
+        msg: Vec<u8>,
+        layer: Option<&str>,
+    ) -> Result<Option<Vec<u8>>, TransportError>;
+}
+
+/// Trait for handling incoming messages in a distributed algorithm.
+///
+/// Implementors of this trait define how their algorithm processes messages
+/// received from other nodes.
+///
+/// # Type Parameters
+///
+/// * `F` - The serialization format to use for message encoding/decoding
+#[async_trait]
+pub trait AlgorithmHandler<F: Format>: Named + Chainable<F> + Send + Sync + 'static {
+    /// Handles an incoming message from a peer.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - The ID of the peer that sent the message
+    /// * `msg_type_id` - The type identifier for the message (used for deserialization)
+    /// * `msg_bytes` - The serialized message payload
+    /// * `format` - The serialization format to use for encoding/decoding
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(response))` - A response message to send back to the sender
+    /// * `Ok(None)` - No response needed (for cast messages)
+    /// * `Err(e)` - An error occurred while processing the message
+    async fn handle(
+        &self,
+        src: PeerId,
+        msg_type_id: String,
+        msg_bytes: Vec<u8>,
+        keystore: KeyStore,
+        format: &F,
+    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// The main trait that distributed algorithms must implement.
@@ -158,5 +201,6 @@ pub trait AlgorithmFactory<F: Format, T: Transport, CM: ConnectionManager<T>> {
         key: PrivateKey,
         id: PeerId,
         community: Arc<Community<T, CM>>,
+        sink: Weak<dyn DeliveryHandler>,
     ) -> Result<Arc<Self::Algorithm>, ConfigError>;
 }

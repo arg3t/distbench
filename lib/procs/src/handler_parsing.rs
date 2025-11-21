@@ -3,6 +3,8 @@
 //! This module provides functionality for parsing handler methods from algorithm
 //! implementation blocks.
 
+use std::collections::HashMap;
+
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{ImplItem, ImplItemFn, ItemImpl, Type};
@@ -66,18 +68,32 @@ pub(crate) fn parse_handler_method(method: &ImplItemFn) -> Result<HandlerInfo, s
 /// A vector of `HandlerInfo` for all methods that match the handler pattern.
 pub(crate) fn extract_all_handlers(input: &ItemImpl) -> Result<Vec<HandlerInfo>, syn::Error> {
     let mut errors = Vec::new();
-    let mut handlers = Vec::new();
+    let mut handlers = HashMap::new();
     for item in input.items.iter() {
         if let ImplItem::Fn(method) = item {
             match parse_handler_method(method) {
-                Ok(handler) => handlers.push(handler),
+                Ok(handler) => {
+                    let msg_type = &handler.msg_type;
+                    let msg_type_str = quote!(#msg_type).to_string().replace(" ", "");
+                    if handlers.contains_key(&msg_type_str) {
+                        errors.push(syn::Error::new_spanned(
+                            method,
+                            format!(
+                                "Duplicate handler method found for message type: {}",
+                                msg_type_str
+                            ),
+                        ));
+                    } else {
+                        handlers.insert(msg_type_str, handler);
+                    }
+                }
                 Err(e) => errors.push(e),
             }
         }
     }
 
     if errors.is_empty() {
-        Ok(handlers)
+        Ok(handlers.into_values().collect())
     } else {
         let mut error = errors.pop().unwrap();
         for e in errors {
@@ -164,6 +180,7 @@ pub(crate) fn generate_algorithm_handler_impl(
                 msg_bytes: Vec<u8>,
                 keystore: ::distbench::community::KeyStore,
                 format: &F,
+                sink: ::std::sync::Weak<dyn ::distbench::DeliveryHandler>,
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 use ::distbench::Format;
                 use ::distbench::signing::Verifiable;

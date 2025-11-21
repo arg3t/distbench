@@ -204,6 +204,12 @@ impl Digest for String {
     }
 }
 
+impl Digest for PeerId {
+    fn digest(&self) -> [u8; 32] {
+        blake3::hash(self.as_ref().as_bytes()).into()
+    }
+}
+
 impl<T: Digest> Digest for Vec<T> {
     /// Hashes a `Vec` by hashing its elements in order.
     fn digest(&self) -> [u8; 32] {
@@ -259,6 +265,12 @@ where
 impl Verifiable<String> for String {
     /// For `String`, verification is a no-op.
     fn verify(self, _keystore: &KeyStore) -> Result<String, PeerError> {
+        Ok(self)
+    }
+}
+
+impl Verifiable<PeerId> for PeerId {
+    fn verify(self, _keystore: &KeyStore) -> Result<PeerId, PeerError> {
         Ok(self)
     }
 }

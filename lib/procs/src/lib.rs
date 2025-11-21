@@ -38,8 +38,8 @@ use proc_macro::TokenStream;
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    state_macro::algorithm_state_impl(item)
+pub fn state(attr: TokenStream, item: TokenStream) -> TokenStream {
+    state_macro::algorithm_state_impl(attr, item)
 }
 
 /// Attribute macro for defining message handlers.
@@ -64,6 +64,26 @@ pub fn state(_attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
     handlers_macro::algorithm_handlers_impl(item)
+}
+
+/// Attribute macro for defining a lower-level algorithm.
+///
+/// This macro marks a field as a lower-level algorithm.
+///
+/// # Example
+///
+/// ```ignore
+/// #[distbench::state]
+/// pub struct MyAlgorithm {
+///     #[distbench::lower]
+///     broadcast: Broadcast,
+///     // Component implementation
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn lower(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    todo!();
+    // lower_macro::lower_impl(item)
 }
 
 /// Attribute macro for defining message types.

@@ -5,6 +5,8 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+use crate::signing::{Digest, Verifiable};
+
 /// Messages exchanged between nodes for coordination and algorithm execution.
 ///
 /// `NodeMessage` is an envelope type that wraps different kinds of messages

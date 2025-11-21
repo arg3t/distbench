@@ -91,4 +91,8 @@ pub enum TransportError {
     /// An error occurred while writing to a file.
     #[error("IO error: {0}")]
     IOError(#[from] std::io::Error),
+
+    /// The algorithm for delivery layer is unknown.
+    #[error("Tried to deliver message to unknown layer: {layer}")]
+    UnknownLayer { layer: String },
 }

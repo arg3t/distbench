@@ -8,6 +8,7 @@ use log::{error, trace};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::mem::swap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,15 +16,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{watch, Notify};
 use typetag::serde;
 
-use crate::algorithm::{Algorithm, AlgorithmHandler};
+use crate::algorithm::{Algorithm, AlgorithmHandler, DeliveryHandler};
 use crate::community::{Community, PeerId};
 use crate::crypto::{PrivateKey, PublicKey};
 use crate::encoding::{Format, JsonFormat};
 use crate::messages::NodeMessage;
 use crate::status::NodeStatus;
 use crate::transport::{self, ConnectionManager, Server, Transport, TransportError};
-use crate::SelfTerminating;
-use crate::NODE_ID_CTX;
+use crate::{AlgorithmFactory, NODE_ID_CTX};
+use crate::{Chainable, SelfTerminating};
 
 /// Internal peer representation for node-to-node communication.
 ///
@@ -98,7 +99,7 @@ where
 
 #[derive(Serialize)]
 struct FullReport {
-    elapsed_time: u64,
+    elapsed_time: i128,
     messages_received: u64,
     bytes_received: u64,
     algorithm: String,
@@ -108,6 +109,7 @@ struct FullReport {
 
 struct AlgoMetrics {
     start_stamp: AtomicU64,
+    end_stamp: AtomicU64,
     messages_received: AtomicU64,
     bytes_received: AtomicU64,
 }
@@ -116,6 +118,7 @@ impl AlgoMetrics {
     pub fn new() -> Self {
         Self {
             start_stamp: AtomicU64::new(0),
+            end_stamp: AtomicU64::new(0),
             messages_received: AtomicU64::new(0),
             bytes_received: AtomicU64::new(0),
         }
@@ -129,6 +132,15 @@ impl AlgoMetrics {
             .expect("System time is before the UNIX epoch")
             .as_secs();
         self.start_stamp.store(start_time, Ordering::Relaxed);
+    }
+
+    /// Records the end time of the algorithm.
+    pub fn end(&self) {
+        let end_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("System time is before the UNIX epoch")
+            .as_secs();
+        self.end_stamp.store(end_time, Ordering::Relaxed);
     }
 
     /// Records a single received message.
@@ -169,13 +181,15 @@ impl AlgoMetrics {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect::<HashMap<String, String>>()
         });
-        let start_time =
-            SystemTime::UNIX_EPOCH + Duration::from_secs(self.start_stamp.load(Ordering::Relaxed));
 
-        let elapsed_time = SystemTime::now()
-            .duration_since(start_time)
-            .unwrap_or_default()
-            .as_secs();
+        let elapsed_time = if self.start_stamp.load(Ordering::Relaxed) != 0
+            && self.end_stamp.load(Ordering::Relaxed) != 0
+        {
+            (self.end_stamp.load(Ordering::Relaxed) - self.start_stamp.load(Ordering::Relaxed))
+                as i128
+        } else {
+            -1
+        };
 
         let report = FullReport {
             elapsed_time,
@@ -238,27 +252,14 @@ where
 {
     id: PeerId,
     key: PrivateKey,
-    status_tx: Arc<watch::Sender<NodeStatus>>,
+    status_tx: watch::Sender<NodeStatus>,
     status_rx: watch::Receiver<NodeStatus>,
     community: Arc<Community<T, CM>>,
+    handlers: HashMap<String, Arc<dyn AlgorithmHandler<F>>>,
     algo: Arc<A>,
+    base: String,
     format: Arc<F>,
-    metrics: Arc<AlgoMetrics>,
-}
-
-impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm, F: Format> Clone for Node<T, CM, A, F> {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id.clone(),
-            key: self.key.clone(),
-            status_tx: Arc::clone(&self.status_tx),
-            status_rx: self.status_rx.clone(),
-            community: Arc::clone(&self.community),
-            algo: Arc::clone(&self.algo),
-            format: self.format.clone(),
-            metrics: self.metrics.clone(),
-        }
-    }
+    metrics: AlgoMetrics,
 }
 
 impl<T, CM, A, F> Node<T, CM, A, F>
@@ -280,26 +281,50 @@ where
     /// # Errors
     ///
     /// Returns a `ConfigError` if the node cannot be initialized.
-    pub fn new(
+    pub fn new<AB>(
         id: PeerId,
         key: PrivateKey,
         community: Arc<Community<T, CM>>,
-        algo: Arc<A>,
+        builder: AB,
         format: Arc<F>,
-    ) -> Result<Self, crate::error::ConfigError> {
+    ) -> Result<Arc<Self>, crate::error::ConfigError>
+    where
+        AB: AlgorithmFactory<F, T, CM, Algorithm = A> + 'static,
+    {
         let (status_tx, status_rx) = watch::channel(NodeStatus::NotStarted);
         community.set_pubkey(id.clone(), key.pubkey());
 
-        Ok(Self {
+        let mut node = Arc::new(Self {
             id,
             key,
             community,
             algo,
+            base: base_algo.name().to_string().clone(),
             format,
-            status_tx: Arc::new(status_tx),
+            status_tx,
+            handlers: HashMap::new(),
             status_rx,
-            metrics: Arc::new(AlgoMetrics::new()),
-        })
+            metrics: AlgoMetrics::new(),
+        });
+
+        let node_handler: Arc<dyn DeliveryHandler> = node.clone();
+        let algo = builder.build(format, key, id, community, Arc::downgrade(&node_handler))?;
+        node.algo = algo;
+
+        let mut base_algo: Arc<dyn AlgorithmHandler<F>> = algo.clone();
+
+        loop {
+            let next = base_algo.next().clone();
+            match next {
+                Some(next_algo) => {
+                    handlers.insert(next_algo.name().to_string(), next_algo.clone());
+                    base_algo = next_algo.clone();
+                }
+                None => break,
+            }
+        }
+
+        Ok(node)
     }
 
     /// Returns the ID of this node.
@@ -331,8 +356,8 @@ where
                     let pubkey = self.key.pubkey();
                     let mut futures = Vec::new();
 
-                    for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn);
+                    for (_, conn) in self.community.all_peers() {
+                        let peer = NodePeer::new(conn.clone());
                         futures.push(async move { peer.announce_pubkey(&pubkey).await });
                     }
                     futures::future::join_all(futures).await;
@@ -350,8 +375,8 @@ where
                     trace!("Node::monitor - Starting state, notifying peers");
                     let mut futures = Vec::new();
 
-                    for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn);
+                    for (_, conn) in self.community.all_peers() {
+                        let peer = NodePeer::new(conn.clone());
                         futures.push(async move { peer.started().await });
                     }
                     futures::future::join_all(futures).await;
@@ -379,8 +404,8 @@ where
                 NodeStatus::Stopping => {
                     trace!("Node::monitor - Stopping state, notifying peers of finish");
                     let mut futures = Vec::new();
-                    for conn in self.community.all_peers() {
-                        let peer = NodePeer::new(conn);
+                    for (_, conn) in self.community.all_peers() {
+                        let peer = NodePeer::new(conn.clone());
                         futures.push(async move { peer.finished().await });
                     }
 
@@ -451,30 +476,30 @@ where
     ///
     /// Returns a `TransportError` if the node fails to start serving.
     pub async fn start(
-        &self,
+        self,
         stop_signal: Arc<Notify>,
     ) -> transport::Result<tokio::task::JoinHandle<transport::Result<String>>> {
         trace!("Node::start - Starting node {}", self.id.to_string());
         let transport = self.community.transport();
-        let serve_self = self.clone();
-        let monitor_self = self.clone();
-        let node_id_str = self.id.to_string();
-        let node_id_str_2 = self.id.to_string();
+        let self_arc = Arc::new(self);
+        let serve_self = self_arc.clone();
+        let status_self = self_arc.clone();
+        let monitor_self = self_arc.clone();
 
         trace!("Node::start - Spawning monitor task");
-        let _ = tokio::spawn(NODE_ID_CTX.scope(node_id_str.clone(), async move {
+        let _ = tokio::spawn(NODE_ID_CTX.scope(self_arc.id.to_string(), async move {
             monitor_self.monitor().await;
         }));
 
-        let serve_handle = tokio::spawn(NODE_ID_CTX.scope(node_id_str_2.clone(), async move {
+        let serve_handle = tokio::spawn(NODE_ID_CTX.scope(self_arc.id.to_string(), async move {
             trace!("Node::start - Spawning serve task");
             let algo = serve_self.algo.clone();
-            let metrics = serve_self.metrics.clone();
+            let metrics_self = serve_self.clone();
             let result = transport.serve(serve_self, stop_signal).await;
             match result {
                 Ok(_) => {
                     trace!("Node::start - Server stopped, generating report");
-                    Ok(metrics.report_json(algo).await)
+                    Ok(metrics_self.metrics.report_json(algo).await)
                 }
                 Err(e) => Err(e),
             }
@@ -482,14 +507,14 @@ where
 
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let _ = self.status_tx.send(NodeStatus::KeySharing);
+        let _ = status_self.status_tx.send(NodeStatus::KeySharing);
 
         Ok(serve_handle)
     }
 }
 
 #[async_trait]
-impl<T, CM, A, F> Server<T> for Node<T, CM, A, F>
+impl<T, CM, A, F> Server<T> for Arc<Node<T, CM, A, F>>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
@@ -539,19 +564,7 @@ where
                     });
                 }
                 self.metrics.received(&msg);
-
-                self.algo
-                    .handle(
-                        peer_id,
-                        msg_type,
-                        msg,
-                        self.community.keystore(),
-                        &self.format,
-                    )
-                    .await
-                    .map_err(|e| TransportError::AlgorithmError {
-                        message: e.to_string(),
-                    })?
+                self.deliver(peer_id, msg_type, msg, None).await?
             }
             NodeMessage::Started => {
                 trace!("Node::handle - Peer {} started", peer_id.to_string());
@@ -632,5 +645,65 @@ where
             .wait_for(|status| *status == NodeStatus::Terminated)
             .await;
         true
+    }
+}
+
+#[async_trait]
+impl<T, CM, A, F> SelfTerminating for Arc<Node<T, CM, A, F>>
+where
+    T: Transport + 'static,
+    CM: ConnectionManager<T> + 'static,
+    A: Algorithm + AlgorithmHandler<F> + 'static,
+    F: Format,
+{
+    async fn terminate(&self) {
+        trace!("Node::terminate - Initiating termination");
+        let _ = self.status_tx.send(NodeStatus::Stopping);
+    }
+
+    async fn terminated(&self) -> bool {
+        let mut status_rx = self.status_rx.clone();
+
+        let _ = status_rx
+            .wait_for(|status| *status == NodeStatus::Terminated)
+            .await;
+        true
+    }
+}
+
+#[async_trait]
+impl<T, CM, A, F> DeliveryHandler for Node<T, CM, A, F>
+where
+    T: Transport + 'static,
+    CM: ConnectionManager<T> + 'static,
+    A: Algorithm + AlgorithmHandler<F> + 'static,
+    F: Format,
+{
+    async fn deliver(
+        &self,
+        peer_id: PeerId,
+        msg_type_id: String,
+        msg: Vec<u8>,
+        layer: Option<&str>,
+    ) -> Result<Option<Vec<u8>>, TransportError> {
+        let algo = self
+            .handlers
+            .get(layer.unwrap_or(&self.base))
+            .ok_or(TransportError::UnknownLayer {
+                layer: layer.unwrap_or(&self.base).to_string(),
+            })?
+            .clone();
+
+        algo.handle(
+            peer_id,
+            msg_type_id,
+            msg,
+            self.community.keystore(),
+            &self.format,
+        )
+        .await
+        .map_err(|e| TransportError::AlgorithmError {
+            message: e.to_string(),
+        })
     }
 }

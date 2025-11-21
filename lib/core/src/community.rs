@@ -22,6 +22,12 @@ use crate::{crypto::PublicKey, status::NodeStatus, transport};
 #[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct PeerId(String);
 
+impl AsRef<str> for PeerId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl PeerId {
     /// Creates a new peer ID from a string.
     ///
@@ -148,8 +154,8 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
     /// # Returns
     ///
     /// An iterator yielding connection managers for each peer in the community.
-    pub fn all_peers(&self) -> impl Iterator<Item = Arc<CM>> + '_ {
-        self.connections.values().cloned()
+    pub fn all_peers(&self) -> impl Iterator<Item = (&PeerId, &Arc<CM>)> + '_ {
+        self.connections.iter().map(|(id, cm)| (id, cm))
     }
 
     /// Looks up the peer ID for a given address.
