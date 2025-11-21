@@ -100,7 +100,24 @@ pub(crate) fn parse_config_field(field: &Field) -> Result<Option<ConfigField>, s
     Ok(None)
 }
 
-/// Extracts config and non-config fields from a struct.
+/// Checks if a field has a `#[distbench::child]` attribute.
+///
+/// # Arguments
+///
+/// * `field` - The field to check
+///
+/// # Returns
+///
+/// * `true` - Field has child attribute
+/// * `false` - Field does not have child attribute
+pub(crate) fn is_child_field(field: &Field) -> bool {
+    field.attrs.iter().any(|attr| {
+        let path_str = attr.into_token_stream().to_string().replace(" ", "");
+        path_str.contains("distbench::child")
+    })
+}
+
+/// Extracts config, child, and non-config fields from a struct.
 ///
 /// # Arguments
 ///
@@ -108,15 +125,16 @@ pub(crate) fn parse_config_field(field: &Field) -> Result<Option<ConfigField>, s
 ///
 /// # Returns
 ///
-/// A tuple of (config_fields, default_fields)
+/// A tuple of (config_fields, child_fields, default_fields)
 ///
 /// # Errors
 ///
 /// Returns an error if any config attribute is malformed.
 pub(crate) fn extract_fields(
     input: &DeriveInput,
-) -> Result<(Vec<ConfigField>, Vec<Field>), syn::Error> {
+) -> Result<(Vec<ConfigField>, Vec<Field>, Vec<Field>), syn::Error> {
     let mut config_fields = Vec::new();
+    let mut child_fields = Vec::new();
     let mut default_fields = Vec::new();
 
     if let Data::Struct(data_struct) = &input.data {
@@ -127,14 +145,18 @@ pub(crate) fn extract_fields(
                         config_fields.push(config_field);
                     }
                     None => {
-                        default_fields.push(field.clone());
+                        if is_child_field(field) {
+                            child_fields.push(field.clone());
+                        } else {
+                            default_fields.push(field.clone());
+                        }
                     }
                 }
             }
         }
     }
 
-    Ok((config_fields, default_fields))
+    Ok((config_fields, child_fields, default_fields))
 }
 
 /// Generates the configuration struct for an algorithm.

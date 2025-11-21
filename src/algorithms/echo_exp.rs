@@ -349,6 +349,7 @@ pub mod echo {
         __keystore: ::distbench::community::KeyStore,
         __formatter: ::std::sync::Arc<::distbench::encoding::Formatter>,
         __path: ::distbench::algorithm::AlgoPath,
+        __parent: ::std::sync::OnceLock<::std::sync::Weak<dyn ::distbench::AlgorithmHandler>>,
     }
     impl Echo {
         fn N(&self) -> u32 {
@@ -374,6 +375,16 @@ pub mod echo {
             let signature = self.__key.sign(&msg.digest());
             let id = self.__id.clone();
             ::distbench::signing::Signed::new(msg, signature, id)
+        }
+        pub fn set_parent(
+            &self,
+            parent: ::std::sync::Weak<dyn ::distbench::AlgorithmHandler>,
+        ) -> Result<(), ::distbench::ConfigError> {
+            self.__parent
+                .set(Some(parent))
+                .map_err(|_| ::distbench::ConfigError::SetParentError {
+                    child_name: self.name().to_string(),
+                })
         }
     }
     pub struct EchoConfig {
@@ -711,7 +722,7 @@ pub mod echo {
                     }
                 }
             };
-            Ok(::std::sync::Arc::new(Self::Algorithm {
+            let self_arc = ::std::sync::Arc::new(Self::Algorithm {
                 start_node: self.start_node.unwrap_or(false),
                 messages_received: Default::default(),
                 __connections: connections,
@@ -723,7 +734,9 @@ pub mod echo {
                 __key: key,
                 __id: id,
                 __path: path,
-            }))
+                __parent: ::std::sync::OnceLock::new(),
+            });
+            Ok(self_arc)
         }
     }
     impl ::distbench::algorithm::Named for Echo {
@@ -894,6 +907,56 @@ pub mod echo {
                     let _ = rx.wait_for(|stopped| *stopped).await;
                     true
                 };
+                #[allow(unreachable_code)]
+                __ret
+            })
+        }
+    }
+    impl ::distbench::AlgorithmHandler for Echo {
+        #[allow(
+            elided_named_lifetimes,
+            clippy::async_yields_async,
+            clippy::diverging_sub_expression,
+            clippy::let_unit_value,
+            clippy::needless_arbitrary_self_type,
+            clippy::no_effect_underscore_binding,
+            clippy::shadow_same,
+            clippy::type_complexity,
+            clippy::type_repetition_in_bounds,
+            clippy::used_underscore_binding
+        )]
+        fn handle<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            src: ::distbench::community::PeerId,
+            msg_type_id: String,
+            msg_bytes: Vec<u8>,
+            path: &'life1 [String],
+        ) -> ::core::pin::Pin<
+            Box<
+                dyn ::core::future::Future<
+                        Output = Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>,
+                    > + ::core::marker::Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move {
+                if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
+                    Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>,
+                > {
+                    #[allow(unreachable_code)]
+                    return __ret;
+                }
+                let __self = self;
+                let src = src;
+                let msg_type_id = msg_type_id;
+                let msg_bytes = msg_bytes;
+                let __ret: Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> =
+                    { ::core::panicking::panic("not yet implemented") };
                 #[allow(unreachable_code)]
                 __ret
             })
@@ -1131,181 +1194,136 @@ pub mod echo {
             Some(msg.message.clone())
         }
     }
-    impl ::distbench::AlgorithmHandler for Echo {
-        #[allow(
-            elided_named_lifetimes,
-            clippy::async_yields_async,
-            clippy::diverging_sub_expression,
-            clippy::let_unit_value,
-            clippy::needless_arbitrary_self_type,
-            clippy::no_effect_underscore_binding,
-            clippy::shadow_same,
-            clippy::type_complexity,
-            clippy::type_repetition_in_bounds,
-            clippy::used_underscore_binding
-        )]
-        fn handle<'life0, 'life1, 'async_trait>(
-            &'life0 self,
+    impl Echo {
+        async fn handle_msg(
+            &self,
             src: ::distbench::community::PeerId,
             msg_type_id: String,
             msg_bytes: Vec<u8>,
-            path: &'life1 [String],
-        ) -> ::core::pin::Pin<
-            Box<
-                dyn ::core::future::Future<
-                        Output = Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>,
-                    > + ::core::marker::Send
-                    + 'async_trait,
-            >,
-        >
-        where
-            'life0: 'async_trait,
-            'life1: 'async_trait,
-            Self: 'async_trait,
-        {
-            Box::pin(async move {
-                if let ::core::option::Option::Some(__ret) = ::core::option::Option::None::<
-                    Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>,
-                > {
-                    #[allow(unreachable_code)]
-                    return __ret;
-                }
-                let __self = self;
-                let src = src;
-                let msg_type_id = msg_type_id;
-                let msg_bytes = msg_bytes;
-                let __ret: Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> = {
-                    use ::distbench::signing::Verifiable;
-                    use ::distbench::Format;
-                    if msg_type_id == "Message" {
-                        {
-                            {
-                                let lvl = ::log::Level::Trace;
-                                if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
-                                    ::log::__private_api::log(
-                                        { ::log::__private_api::GlobalLogger },
-                                        format_args!(
-                                            "AlgorithmHandler::handle - Deserializing message of type {0} from {1:?}",
-                                            "Message",
-                                            src,
-                                        ),
-                                        lvl,
-                                        &(
-                                            "runner::algorithms::echo",
-                                            "runner::algorithms::echo",
-                                            ::log::__private_api::loc(),
-                                        ),
-                                        (),
-                                    );
-                                }
-                            }
-                        };
-                        let msg = __self
-                            .__formatter
-                            .deserialize::<Message>(&msg_bytes)
-                            .map_err(|e| ::distbench::PeerError::DeserializationFailed {
-                                message: ::alloc::__export::must_use({
-                                    ::alloc::fmt::format(
-                                        format_args!(
-                                            "Failed to deserialize message of type \'{0}\' from {1:?}: {2}",
-                                            "Message",
-                                            src,
-                                            e,
-                                        ),
-                                    )
-                                }),
-                            })?;
-                        let msg = msg.verify(&__self.__keystore)?;
-                        {
-                            {
-                                let lvl = ::log::Level::Trace;
-                                if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
-                                    ::log::__private_api::log(
-                                        { ::log::__private_api::GlobalLogger },
-                                        format_args!(
-                                            "AlgorithmHandler::handle - Calling handler {0} (send/reply)",
-                                            "Message",
-                                        ),
-                                        lvl,
-                                        &(
-                                            "runner::algorithms::echo",
-                                            "runner::algorithms::echo",
-                                            ::log::__private_api::loc(),
-                                        ),
-                                        (),
-                                    );
-                                }
-                            }
-                        };
-                        let reply: Option<String> = __self.message(src.clone(), &msg).await;
-                        {
-                            {
-                                let lvl = ::log::Level::Trace;
-                                if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
-                                    ::log::__private_api::log(
-                                        { ::log::__private_api::GlobalLogger },
-                                        format_args!(
-                                            "AlgorithmHandler::handle - Serializing reply of type {0}",
-                                            "Option<String>",
-                                        ),
-                                        lvl,
-                                        &(
-                                            "runner::algorithms::echo",
-                                            "runner::algorithms::echo",
-                                            ::log::__private_api::loc(),
-                                        ),
-                                        (),
-                                    );
-                                }
-                            }
-                        };
-                        let reply_bytes = __self.__formatter.serialize(&reply).map_err(|e| {
-                            ::distbench::PeerError::SerializationFailed {
-                                message: ::alloc::__export::must_use({
-                                    ::alloc::fmt::format(format_args!(
-                                        "Failed to serialize reply of type \'{0}\': {1}",
-                                        "Option<String>", e,
-                                    ))
-                                }),
-                            }
-                        })?;
-                        {
-                            {
-                                let lvl = ::log::Level::Trace;
-                                if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
-                                    ::log::__private_api::log(
-                                        { ::log::__private_api::GlobalLogger },
-                                        format_args!(
-                                            "AlgorithmHandler::handle - Handler {0} completed, reply: {1} bytes",
-                                            "Message",
-                                            reply_bytes.len(),
-                                        ),
-                                        lvl,
-                                        &(
-                                            "runner::algorithms::echo",
-                                            "runner::algorithms::echo",
-                                            ::log::__private_api::loc(),
-                                        ),
-                                        (),
-                                    );
-                                }
-                            }
-                        };
-                        return Ok(Some(reply_bytes));
+        ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+            use ::distbench::signing::Verifiable;
+            use ::distbench::Format;
+            if msg_type_id == "Message" {
+                {
+                    {
+                        let lvl = ::log::Level::Trace;
+                        if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
+                            ::log::__private_api::log(
+                                { ::log::__private_api::GlobalLogger },
+                                format_args!(
+                                    "AlgorithmHandler::handle - Deserializing message of type {0} from {1:?}",
+                                    "Message",
+                                    src,
+                                ),
+                                lvl,
+                                &(
+                                    "runner::algorithms::echo",
+                                    "runner::algorithms::echo",
+                                    ::log::__private_api::loc(),
+                                ),
+                                (),
+                            );
+                        }
                     }
-                    Err(::distbench::PeerError::UnknownMessageType {
+                };
+                let msg = self
+                    .__formatter
+                    .deserialize::<Message>(&msg_bytes)
+                    .map_err(|e| ::distbench::PeerError::DeserializationFailed {
                         message: ::alloc::__export::must_use({
                             ::alloc::fmt::format(format_args!(
-                                "Received unhandled message type \'{0}\'",
-                                msg_type_id,
+                                "Failed to deserialize message of type \'{0}\' from {1:?}: {2}",
+                                "Message", src, e,
+                            ))
+                        }),
+                    })?;
+                let msg = msg.verify(&self.__keystore)?;
+                {
+                    {
+                        let lvl = ::log::Level::Trace;
+                        if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
+                            ::log::__private_api::log(
+                                { ::log::__private_api::GlobalLogger },
+                                format_args!(
+                                    "AlgorithmHandler::handle - Calling handler {0} (send/reply)",
+                                    "Message",
+                                ),
+                                lvl,
+                                &(
+                                    "runner::algorithms::echo",
+                                    "runner::algorithms::echo",
+                                    ::log::__private_api::loc(),
+                                ),
+                                (),
+                            );
+                        }
+                    }
+                };
+                let reply: Option<String> = self.message(src.clone(), &msg).await;
+                {
+                    {
+                        let lvl = ::log::Level::Trace;
+                        if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
+                            ::log::__private_api::log(
+                                { ::log::__private_api::GlobalLogger },
+                                format_args!(
+                                    "AlgorithmHandler::handle - Serializing reply of type {0}",
+                                    "Option<String>",
+                                ),
+                                lvl,
+                                &(
+                                    "runner::algorithms::echo",
+                                    "runner::algorithms::echo",
+                                    ::log::__private_api::loc(),
+                                ),
+                                (),
+                            );
+                        }
+                    }
+                };
+                let reply_bytes = self.__formatter.serialize(&reply).map_err(|e| {
+                    ::distbench::PeerError::SerializationFailed {
+                        message: ::alloc::__export::must_use({
+                            ::alloc::fmt::format(format_args!(
+                                "Failed to serialize reply of type \'{0}\': {1}",
+                                "Option<String>", e,
                             ))
                         }),
                     }
-                    .into())
+                })?;
+                {
+                    {
+                        let lvl = ::log::Level::Trace;
+                        if lvl <= ::log::STATIC_MAX_LEVEL && lvl <= ::log::max_level() {
+                            ::log::__private_api::log(
+                                { ::log::__private_api::GlobalLogger },
+                                format_args!(
+                                    "AlgorithmHandler::handle - Handler {0} completed, reply: {1} bytes",
+                                    "Message",
+                                    reply_bytes.len(),
+                                ),
+                                lvl,
+                                &(
+                                    "runner::algorithms::echo",
+                                    "runner::algorithms::echo",
+                                    ::log::__private_api::loc(),
+                                ),
+                                (),
+                            );
+                        }
+                    }
                 };
-                #[allow(unreachable_code)]
-                __ret
-            })
+                return Ok(Some(reply_bytes));
+            }
+            Err(::distbench::PeerError::UnknownMessageType {
+                message: ::alloc::__export::must_use({
+                    ::alloc::fmt::format(format_args!(
+                        "Received unhandled message type \'{0}\'",
+                        msg_type_id,
+                    ))
+                }),
+            }
+            .into())
         }
     }
     impl EchoPeer {
@@ -1338,7 +1356,7 @@ pub mod echo {
             'life1: 'async_trait,
             Self: 'async_trait;
     }
-    impl<F, T, CM> EchoPeerService for EchoPeerInner<T, CM>
+    impl<T, CM> EchoPeerService for EchoPeerInner<T, CM>
     where
         T: ::distbench::transport::Transport,
         CM: ::distbench::transport::ConnectionManager<T>,

@@ -41,8 +41,8 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
     );
 
     // Extract config fields, handling potential errors
-    let (config_fields, default_fields) = match extract_fields(&input) {
-        Ok((config, default)) => (config, default),
+    let (config_fields, child_fields, default_fields) = match extract_fields(&input) {
+        Ok((config, child, default)) => (config, child, default),
         Err(e) => {
             // Convert the syn::Error into a compile_error! token stream
             return e.into_compile_error().into();
@@ -54,11 +54,12 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
 
     if let Data::Struct(ref mut data_struct) = input.data {
         if let Fields::Named(ref mut fields) = data_struct.fields {
-            // Remove config attributes from all fields
+            // Remove config and child attributes from all fields
             for field in fields.named.iter_mut() {
                 field.attrs.retain(|attr| {
                     let path_str = attr.into_token_stream().to_string().replace(" ", "");
                     !path_str.contains("distbench::config")
+                        && !path_str.contains("distbench::child")
                 });
             }
 
@@ -92,6 +93,9 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
             let path_field: Field = syn::parse_quote! {
                 __path: ::distbench::algorithm::AlgoPath
             };
+            let parent_field: Field = syn::parse_quote! {
+                __parent: ::std::sync::OnceLock<::std::sync::Weak<dyn ::distbench::AlgorithmHandler>>
+            };
 
             fields.named.extend(vec![
                 id_field,
@@ -103,15 +107,23 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
                 keystore_field,
                 formatter_field,
                 path_field,
+                parent_field,
             ]);
         }
     }
 
     let field_inits = generate_field_initializers(&config_fields, &default_fields);
     let helper_fns = generate_helper_fns(alg_name, &peer_name);
-    let factory_impl = generate_factory_impl(&config_name, alg_name, &peer_name, &field_inits);
+    let factory_impl = generate_factory_impl(
+        &config_name,
+        alg_name,
+        &peer_name,
+        &field_inits,
+        &child_fields,
+    );
     let peer_struct = generate_peer_structs(&peer_name);
     let self_terminating_impl = generate_self_terminating_impl(alg_name);
+    let algorithm_handler_impl = generate_algorithm_handler_impl(alg_name, &child_fields);
     let named_impl = generate_named_impl(alg_name);
 
     let expanded = quote! {
@@ -128,6 +140,8 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
         #peer_struct
 
         #self_terminating_impl
+
+        #algorithm_handler_impl
     };
 
     TokenStream::from(expanded)
@@ -163,6 +177,17 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
             }
             // TODO: Add Node IDS method
 
+            pub fn set_parent(&self, parent: ::std::sync::Weak<dyn ::distbench::AlgorithmHandler>) -> Result<(), ::distbench::ConfigError> {
+                use ::distbench::algorithm::Named;
+
+                self.__parent.set(parent).map_err(|_| ::distbench::ConfigError::SetParentError { child_name: self.name().to_string() })
+            }
+
+            async fn deliver(&self, src: ::distbench::community::PeerId, msg_bytes: Vec<u8>) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+                if let Some(parent) = self.__parent.get() {
+                    parent.handle(src, msg_bytes).await;
+                }
+            }
         }
     }
 }
@@ -191,6 +216,28 @@ fn generate_field_initializers(
         .collect()
 }
 
+fn generate_child_field_initializers(
+    child_fields: &[Field],
+) -> (Vec<TokenStream2>, Vec<TokenStream2>, Vec<TokenStream2>) {
+    let mut builders = Vec::new();
+    let mut initializers = Vec::new();
+    let mut weak_setters = Vec::new();
+
+    for field in child_fields {
+        let name = &field.ident;
+        builders.push(quote! {
+            let #name = {
+                let new_path = path.clone().push(#name.to_string());
+                self.#name.build(format.clone(), key.clone(), id.clone(), community.clone(), new_path)?
+            }
+        });
+        initializers.push(quote! { #name });
+        weak_setters.push(quote! { #name.set_parent(self_arc.clone())? });
+    }
+
+    (builders, initializers, weak_setters)
+}
+
 /// Generates the Named trait implementation.
 fn generate_named_impl(alg_name: &syn::Ident) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
@@ -210,6 +257,7 @@ fn generate_factory_impl(
     alg_name: &syn::Ident,
     peer_name: &syn::Ident,
     field_inits: &[TokenStream2],
+    child_fields: &[Field],
 ) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
     let peer_name_trait = syn::Ident::new(
@@ -221,6 +269,8 @@ fn generate_factory_impl(
         &format!("{}Inner", peer_name),
         proc_macro2::Span::call_site(),
     );
+
+    let (builders, initializers, weak_setters) = generate_child_field_initializers(child_fields);
 
     quote! {
         impl<T, CM> ::distbench::AlgorithmFactory<T, CM> for #config_name
@@ -255,11 +305,13 @@ fn generate_factory_impl(
                     })
                     .collect();
 
+                #(#builders)*
+
                 // Initial state is 'not stopped' (false)
                 let (stopped_tx, stopped_rx) = ::tokio::sync::watch::channel(false);
-
                 ::log::trace!("{}::build() - Algorithm instance built successfully", #alg_name_str);
-                Ok(::std::sync::Arc::new(Self::Algorithm {
+
+                let self_arc = ::std::sync::Arc::new(Self::Algorithm {
                     #(#field_inits,)*
                     __connections: connections,
                     __network_size: community.size() as u32,
@@ -270,7 +322,13 @@ fn generate_factory_impl(
                     __key: key,
                     __id: id,
                     __path: path,
-                }))
+                    __parent: ::std::sync::OnceLock::new(),
+                    #(#initializers)*
+                });
+
+                #(#weak_setters)*
+
+                Ok(self_arc)
             }
         }
     }
@@ -303,17 +361,13 @@ fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
 }
 
 /// Generate the message handler block that calls the respective algorithm's handler.
-fn generate_algorithm_handler_impl(
-    self_ty: &syn::Ident,
-    handle_arms: &[TokenStream2],
-) -> TokenStream2 {
+fn generate_algorithm_handler_impl(self_ty: &syn::Ident, child_fields: &[Field]) -> TokenStream2 {
     quote! {
         #[async_trait::async_trait]
         impl ::distbench::AlgorithmHandler for #self_ty {
             async fn handle(
                 &self,
                 src: ::distbench::community::PeerId,
-                msg_type_id: String,
                 msg_bytes: Vec<u8>,
                 path: &[String],
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {

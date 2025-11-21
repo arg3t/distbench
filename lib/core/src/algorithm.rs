@@ -58,7 +58,6 @@ pub trait AlgorithmHandler: Send + Sync + 'static {
     /// * `src` - The ID of the peer that sent the message
     /// * `msg_type_id` - The type identifier for the message (used for deserialization)
     /// * `msg_bytes` - The serialized message payload
-    /// * `format` - The serialization format to use for encoding/decoding
     ///
     /// # Returns
     ///
@@ -71,6 +70,29 @@ pub trait AlgorithmHandler: Send + Sync + 'static {
         msg_type_id: String,
         msg_bytes: Vec<u8>,
         path: &[String],
+    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// Trait for algorithms to handle messages delivered from
+/// other algorithms.
+#[async_trait]
+pub trait AlgorithmDeliverer: Send + Sync + 'static {
+    /// Delivers a message to the algorithm.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - The ID of the peer that sent the message
+    /// * `msg_type_id` - The type identifier for the message (used for deserialization)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(response))` - A response message to send back to the sender
+    /// * `Ok(None)` - No response needed (for cast messages)
+    /// * `Err(e)` - An error occurred while processing the message
+    async fn deliver(
+        &self,
+        src: PeerId,
+        msg_bytes: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 }
 

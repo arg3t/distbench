@@ -60,4 +60,8 @@ pub enum ConfigError {
     /// is missing.
     #[error("Config field '{field}' is required")]
     RequiredField { field: String },
+
+    /// An error occurred while setting the parent.
+    #[error("Failed to set parent algorithm for {child_name}")]
+    SetParentError { child_name: String },
 }

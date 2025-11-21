@@ -66,27 +66,6 @@ pub fn handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
     handlers_macro::algorithm_handlers_impl(item)
 }
 
-/// Attribute macro for defining a child algorithm.
-///
-/// This macro marks a field as a child algorithm. So it
-/// can be used as a component of another algorithm.
-///
-/// # Example
-///
-/// ```ignore
-/// #[distbench::state]
-/// pub struct MyAlgorithm {
-///     #[distbench::algorithm]
-///     broadcast: Broadcast,
-///     // Component implementation
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn child(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    todo!();
-    // lower_macro::lower_impl(item)
-}
-
 /// Attribute macro for defining message types.
 ///
 /// Automatically derives `Serialize`, `Deserialize`, `Clone`, and `Debug` for the type.
