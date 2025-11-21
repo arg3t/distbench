@@ -5,7 +5,7 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::signing::{Digest, Verifiable};
+use crate::algorithm::AlgoPath;
 
 /// Messages exchanged between nodes for coordination and algorithm execution.
 ///
@@ -29,5 +29,5 @@ pub enum NodeMessage {
     ///
     /// * `0` - The message type identifier (used for deserialization)
     /// * `1` - The serialized message payload
-    Algorithm(String, Vec<u8>),
+    Algorithm(String, Vec<u8>, AlgoPath),
 }

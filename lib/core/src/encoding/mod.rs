@@ -58,3 +58,27 @@ pub trait Format: Send + Sync + Clone + 'static {
     /// Returns the name of this format (for debugging/logging).
     fn name(&self) -> &'static str;
 }
+
+pub enum Formatter {
+    Json(JsonFormat),
+    Bincode(BincodeFormat),
+}
+
+impl Formatter {
+    pub fn serialize<T: Serialize>(&self, value: &T) -> Result<Vec<u8>, FormatError> {
+        match self {
+            Formatter::Json(format) => format.serialize(value),
+            Formatter::Bincode(format) => format.serialize(value),
+        }
+    }
+
+    pub fn deserialize<'de, T: Deserialize<'de>>(
+        &self,
+        bytes: &'de [u8],
+    ) -> Result<T, FormatError> {
+        match self {
+            Formatter::Json(format) => format.deserialize(bytes),
+            Formatter::Bincode(format) => format.deserialize(bytes),
+        }
+    }
+}

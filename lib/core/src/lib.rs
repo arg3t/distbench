@@ -40,11 +40,9 @@ pub mod status;
 pub mod transport;
 
 // Re-export commonly used types at the crate root
-pub use algorithm::{
-    Algorithm, AlgorithmFactory, AlgorithmHandler, Chainable, DeliveryHandler, SelfTerminating,
-};
+pub use algorithm::{Algorithm, AlgorithmFactory, AlgorithmHandler, SelfTerminating};
 pub use community::{Community, PeerId};
-pub use encoding::{BincodeFormat, Format, FormatError, JsonFormat};
+pub use encoding::{BincodeFormat, Format, FormatError, Formatter, JsonFormat};
 pub use error::{ConfigError, PeerError};
 pub use messages::NodeMessage;
 pub use node::Node;

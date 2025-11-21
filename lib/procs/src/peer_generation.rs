@@ -83,7 +83,8 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 
                             let envelope = ::distbench::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
-                                msg_bytes
+                                msg_bytes,
+                                self.path.clone()
                             );
 
                             ::log::trace!("Peer::{} - Serializing envelope with rkyv", stringify!(#method_name));
@@ -121,7 +122,8 @@ pub(crate) fn generate_peer_methods(handlers: &[HandlerInfo]) -> Vec<TokenStream
 
                             let envelope = ::distbench::NodeMessage::Algorithm(
                                 #msg_type_str.to_string(),
-                                msg_bytes
+                                msg_bytes,
+                                self.path.clone()
                             );
 
                             ::log::trace!("Peer::{} - Serializing envelope with rkyv", stringify!(#method_name));
@@ -175,19 +177,21 @@ pub(crate) fn generate_peer_structs(peer_name: &syn::Ident) -> TokenStream2 {
 
     quote! {
         #[derive(Clone)]
-        struct #inner_peer_name<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> {
+        struct #inner_peer_name<T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> {
             connection_manager: ::std::sync::Arc<CM>,
-            format: ::std::sync::Arc<F>,
+            format: ::std::sync::Arc<::distbench::encoding::Formatter>,
             community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
+            path: ::distbench::algorithm::AlgoPath,
             _phantom: ::std::marker::PhantomData<T>,
         }
 
-        impl<F: ::distbench::Format, T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> #inner_peer_name<F, T, CM> {
-            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<F>, community: ::std::sync::Arc<::distbench::community::Community<T, CM>>) -> Self {
+        impl<T: ::distbench::transport::Transport + 'static, CM: ::distbench::transport::ConnectionManager<T> + 'static> #inner_peer_name<T, CM> {
+            pub fn new(connection_manager: ::std::sync::Arc<CM>, format: ::std::sync::Arc<::distbench::encoding::Formatter>, community: ::std::sync::Arc<::distbench::community::Community<T, CM>>, path: ::distbench::algorithm::AlgoPath) -> Self {
                 Self {
                     connection_manager,
                     format,
                     community,
+                    path,
                     _phantom: ::std::marker::PhantomData,
                 }
             }

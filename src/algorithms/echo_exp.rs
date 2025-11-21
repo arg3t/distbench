@@ -1,9 +1,7 @@
 pub mod echo {
     use async_trait::async_trait;
     use common_macros::hash_map;
-    use distbench::{
-        self, community::PeerId, messages::AlgorithmMessage, Algorithm, SelfTerminating,
-    };
+    use distbench::{self, community::PeerId, Algorithm, SelfTerminating};
     use log::{error, info};
     use std::{
         collections::HashMap,
@@ -11,10 +9,9 @@ pub mod echo {
         sync::atomic::{AtomicU64, Ordering},
         time::Duration,
     };
-    struct Message<T> {
+    struct Message {
         sender: String,
         message: String,
-        payload: T,
     }
     #[doc(hidden)]
     #[allow(
@@ -27,10 +24,7 @@ pub mod echo {
         #[allow(unused_extern_crates, clippy::useless_attribute)]
         extern crate serde as _serde;
         #[automatically_derived]
-        impl<T> _serde::Serialize for Message<T>
-        where
-            T: _serde::Serialize,
-        {
+        impl _serde::Serialize for Message {
             fn serialize<__S>(
                 &self,
                 __serializer: __S,
@@ -41,7 +35,7 @@ pub mod echo {
                 let mut __serde_state = _serde::Serializer::serialize_struct(
                     __serializer,
                     "Message",
-                    false as usize + 1 + 1 + 1,
+                    false as usize + 1 + 1,
                 )?;
                 _serde::ser::SerializeStruct::serialize_field(
                     &mut __serde_state,
@@ -52,11 +46,6 @@ pub mod echo {
                     &mut __serde_state,
                     "message",
                     &self.message,
-                )?;
-                _serde::ser::SerializeStruct::serialize_field(
-                    &mut __serde_state,
-                    "payload",
-                    &self.payload,
                 )?;
                 _serde::ser::SerializeStruct::end(__serde_state)
             }
@@ -73,10 +62,7 @@ pub mod echo {
         #[allow(unused_extern_crates, clippy::useless_attribute)]
         extern crate serde as _serde;
         #[automatically_derived]
-        impl<'de, T> _serde::Deserialize<'de> for Message<T>
-        where
-            T: _serde::Deserialize<'de>,
-        {
+        impl<'de> _serde::Deserialize<'de> for Message {
             fn deserialize<__D>(
                 __deserializer: __D,
             ) -> _serde::__private228::Result<Self, __D::Error>
@@ -88,7 +74,6 @@ pub mod echo {
                 enum __Field {
                     __field0,
                     __field1,
-                    __field2,
                     __ignore,
                 }
                 #[doc(hidden)]
@@ -112,7 +97,6 @@ pub mod echo {
                         match __value {
                             0u64 => _serde::__private228::Ok(__Field::__field0),
                             1u64 => _serde::__private228::Ok(__Field::__field1),
-                            2u64 => _serde::__private228::Ok(__Field::__field2),
                             _ => _serde::__private228::Ok(__Field::__ignore),
                         }
                     }
@@ -126,7 +110,6 @@ pub mod echo {
                         match __value {
                             "sender" => _serde::__private228::Ok(__Field::__field0),
                             "message" => _serde::__private228::Ok(__Field::__field1),
-                            "payload" => _serde::__private228::Ok(__Field::__field2),
                             _ => _serde::__private228::Ok(__Field::__ignore),
                         }
                     }
@@ -140,7 +123,6 @@ pub mod echo {
                         match __value {
                             b"sender" => _serde::__private228::Ok(__Field::__field0),
                             b"message" => _serde::__private228::Ok(__Field::__field1),
-                            b"payload" => _serde::__private228::Ok(__Field::__field2),
                             _ => _serde::__private228::Ok(__Field::__ignore),
                         }
                     }
@@ -158,19 +140,13 @@ pub mod echo {
                     }
                 }
                 #[doc(hidden)]
-                struct __Visitor<'de, T>
-                where
-                    T: _serde::Deserialize<'de>,
-                {
-                    marker: _serde::__private228::PhantomData<Message<T>>,
+                struct __Visitor<'de> {
+                    marker: _serde::__private228::PhantomData<Message>,
                     lifetime: _serde::__private228::PhantomData<&'de ()>,
                 }
                 #[automatically_derived]
-                impl<'de, T> _serde::de::Visitor<'de> for __Visitor<'de, T>
-                where
-                    T: _serde::Deserialize<'de>,
-                {
-                    type Value = Message<T>;
+                impl<'de> _serde::de::Visitor<'de> for __Visitor<'de> {
+                    type Value = Message;
                     fn expecting(
                         &self,
                         __formatter: &mut _serde::__private228::Formatter,
@@ -192,7 +168,7 @@ pub mod echo {
                                     return _serde::__private228::Err(
                                         _serde::de::Error::invalid_length(
                                             0usize,
-                                            &"struct Message with 3 elements",
+                                            &"struct Message with 2 elements",
                                         ),
                                     );
                                 }
@@ -204,26 +180,14 @@ pub mod echo {
                                     return _serde::__private228::Err(
                                         _serde::de::Error::invalid_length(
                                             1usize,
-                                            &"struct Message with 3 elements",
+                                            &"struct Message with 2 elements",
                                         ),
                                     );
                                 }
                             };
-                        let __field2 = match _serde::de::SeqAccess::next_element::<T>(&mut __seq)? {
-                            _serde::__private228::Some(__value) => __value,
-                            _serde::__private228::None => {
-                                return _serde::__private228::Err(
-                                    _serde::de::Error::invalid_length(
-                                        2usize,
-                                        &"struct Message with 3 elements",
-                                    ),
-                                );
-                            }
-                        };
                         _serde::__private228::Ok(Message {
                             sender: __field0,
                             message: __field1,
-                            payload: __field2,
                         })
                     }
                     #[inline]
@@ -237,8 +201,6 @@ pub mod echo {
                         let mut __field0: _serde::__private228::Option<String> =
                             _serde::__private228::None;
                         let mut __field1: _serde::__private228::Option<String> =
-                            _serde::__private228::None;
-                        let mut __field2: _serde::__private228::Option<T> =
                             _serde::__private228::None;
                         while let _serde::__private228::Some(__key) =
                             _serde::de::MapAccess::next_key::<__Field>(&mut __map)?
@@ -268,18 +230,6 @@ pub mod echo {
                                         _serde::de::MapAccess::next_value::<String>(&mut __map)?,
                                     );
                                 }
-                                __Field::__field2 => {
-                                    if _serde::__private228::Option::is_some(&__field2) {
-                                        return _serde::__private228::Err(
-                                            <__A::Error as _serde::de::Error>::duplicate_field(
-                                                "payload",
-                                            ),
-                                        );
-                                    }
-                                    __field2 = _serde::__private228::Some(
-                                        _serde::de::MapAccess::next_value::<T>(&mut __map)?,
-                                    );
-                                }
                                 _ => {
                                     let _ = _serde::de::MapAccess::next_value::<
                                         _serde::de::IgnoredAny,
@@ -299,27 +249,20 @@ pub mod echo {
                                 _serde::__private228::de::missing_field("message")?
                             }
                         };
-                        let __field2 = match __field2 {
-                            _serde::__private228::Some(__field2) => __field2,
-                            _serde::__private228::None => {
-                                _serde::__private228::de::missing_field("payload")?
-                            }
-                        };
                         _serde::__private228::Ok(Message {
                             sender: __field0,
                             message: __field1,
-                            payload: __field2,
                         })
                     }
                 }
                 #[doc(hidden)]
-                const FIELDS: &'static [&'static str] = &["sender", "message", "payload"];
+                const FIELDS: &'static [&'static str] = &["sender", "message"];
                 _serde::Deserializer::deserialize_struct(
                     __deserializer,
                     "Message",
                     FIELDS,
                     __Visitor {
-                        marker: _serde::__private228::PhantomData::<Message<T>>,
+                        marker: _serde::__private228::PhantomData::<Message>,
                         lifetime: _serde::__private228::PhantomData,
                     },
                 )
@@ -327,44 +270,38 @@ pub mod echo {
         }
     };
     #[automatically_derived]
-    impl<T: ::core::clone::Clone> ::core::clone::Clone for Message<T> {
+    impl ::core::clone::Clone for Message {
         #[inline]
-        fn clone(&self) -> Message<T> {
+        fn clone(&self) -> Message {
             Message {
                 sender: ::core::clone::Clone::clone(&self.sender),
                 message: ::core::clone::Clone::clone(&self.message),
-                payload: ::core::clone::Clone::clone(&self.payload),
             }
         }
     }
     #[automatically_derived]
-    impl<T: ::core::fmt::Debug> ::core::fmt::Debug for Message<T> {
+    impl ::core::fmt::Debug for Message {
         #[inline]
         fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-            ::core::fmt::Formatter::debug_struct_field3_finish(
+            ::core::fmt::Formatter::debug_struct_field2_finish(
                 f,
                 "Message",
                 "sender",
                 &self.sender,
                 "message",
-                &self.message,
-                "payload",
-                &&self.payload,
+                &&self.message,
             )
         }
     }
-    impl<T: ::distbench::messages::AlgorithmMessage> ::distbench::signing::Digest for Message<T> {
+    impl ::distbench::signing::Digest for Message {
         fn digest(&self) -> [u8; 32] {
             let mut hasher = ::blake3::Hasher::new();
             hasher.update(&self.sender.digest());
             hasher.update(&self.message.digest());
-            hasher.update(&self.payload.digest());
             hasher.finalize().into()
         }
     }
-    impl<T: ::distbench::messages::AlgorithmMessage> ::distbench::signing::Verifiable<Message<T>>
-        for Message<T>
-    {
+    impl ::distbench::signing::Verifiable<Message> for Message {
         fn verify(
             self,
             keystore: &::distbench::community::KeyStore,
@@ -390,20 +327,12 @@ pub mod echo {
             Ok(Self {
                 sender: self.sender.verify(keystore)?,
                 message: self.message.verify(keystore)?,
-                payload: self.payload.verify(keystore)?,
             })
         }
     }
-    impl<T: ::distbench::messages::AlgorithmMessage> AsRef<Message<T>> for Message<T> {
-        fn as_ref(&self) -> &Message<T> {
+    impl AsRef<Message> for Message {
+        fn as_ref(&self) -> &Message {
             self
-        }
-    }
-    impl<T: ::distbench::messages::AlgorithmMessage> ::distbench::messages::AlgorithmMessage
-        for Message<T>
-    {
-        fn type_id(&self) -> String {
-            "Message".to_string()
         }
     }
     pub struct Echo {
@@ -417,6 +346,9 @@ pub mod echo {
         __stopped_rx: ::tokio::sync::watch::Receiver<bool>,
         __network_size: u32,
         __connections: ::std::collections::HashMap<::distbench::community::PeerId, EchoPeer>,
+        __keystore: ::distbench::community::KeyStore,
+        __formatter: ::std::sync::Arc<::distbench::encoding::Formatter>,
+        __path: ::distbench::algorithm::AlgoPath,
     }
     impl Echo {
         fn N(&self) -> u32 {
@@ -663,20 +595,20 @@ pub mod echo {
             }
         }
     };
-    impl<F, T, CM> ::distbench::AlgorithmFactory<F, T, CM> for EchoConfig
+    impl<T, CM> ::distbench::AlgorithmFactory<T, CM> for EchoConfig
     where
         T: ::distbench::transport::Transport + 'static,
         CM: ::distbench::transport::ConnectionManager<T> + 'static,
-        F: ::distbench::Format + 'static,
     {
         type Algorithm = Echo;
         fn build(
             self,
-            format: ::std::sync::Arc<F>,
+            format: ::std::sync::Arc<::distbench::encoding::Formatter>,
             key: ::distbench::crypto::PrivateKey,
             id: ::distbench::community::PeerId,
             community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
-        ) -> Result<Self::Algorithm, ::distbench::ConfigError> {
+            path: ::distbench::algorithm::AlgoPath,
+        ) -> Result<::std::sync::Arc<Self::Algorithm>, ::distbench::ConfigError> {
             {
                 {
                     let lvl = ::log::Level::Trace;
@@ -751,6 +683,7 @@ pub mod echo {
                             conn_manager,
                             format.clone(),
                             community.clone(),
+                            path.clone(),
                         ))
                             as Box<dyn EchoPeerService>)),
                     )
@@ -778,16 +711,19 @@ pub mod echo {
                     }
                 }
             };
-            Ok(Self::Algorithm {
+            Ok(::std::sync::Arc::new(Self::Algorithm {
                 start_node: self.start_node.unwrap_or(false),
                 messages_received: Default::default(),
                 __connections: connections,
                 __network_size: community.size() as u32,
+                __keystore: community.keystore(),
                 __stopped_tx: ::std::sync::Arc::new(stopped_tx),
                 __stopped_rx: stopped_rx,
+                __formatter: format,
                 __key: key,
                 __id: id,
-            })
+                __path: path,
+            }))
         }
     }
     impl ::distbench::algorithm::Named for Echo {
@@ -796,47 +732,48 @@ pub mod echo {
         }
     }
     struct EchoPeerInner<
-        F: ::distbench::Format,
         T: ::distbench::transport::Transport + 'static,
         CM: ::distbench::transport::ConnectionManager<T> + 'static,
     > {
         connection_manager: ::std::sync::Arc<CM>,
-        format: ::std::sync::Arc<F>,
+        format: ::std::sync::Arc<::distbench::encoding::Formatter>,
         community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
+        path: ::distbench::algorithm::AlgoPath,
         _phantom: ::std::marker::PhantomData<T>,
     }
     #[automatically_derived]
     impl<
-            F: ::core::clone::Clone + ::distbench::Format,
             T: ::core::clone::Clone + ::distbench::transport::Transport + 'static,
             CM: ::core::clone::Clone + ::distbench::transport::ConnectionManager<T> + 'static,
-        > ::core::clone::Clone for EchoPeerInner<F, T, CM>
+        > ::core::clone::Clone for EchoPeerInner<T, CM>
     {
         #[inline]
-        fn clone(&self) -> EchoPeerInner<F, T, CM> {
+        fn clone(&self) -> EchoPeerInner<T, CM> {
             EchoPeerInner {
                 connection_manager: ::core::clone::Clone::clone(&self.connection_manager),
                 format: ::core::clone::Clone::clone(&self.format),
                 community: ::core::clone::Clone::clone(&self.community),
+                path: ::core::clone::Clone::clone(&self.path),
                 _phantom: ::core::clone::Clone::clone(&self._phantom),
             }
         }
     }
     impl<
-            F: ::distbench::Format,
             T: ::distbench::transport::Transport + 'static,
             CM: ::distbench::transport::ConnectionManager<T> + 'static,
-        > EchoPeerInner<F, T, CM>
+        > EchoPeerInner<T, CM>
     {
         pub fn new(
             connection_manager: ::std::sync::Arc<CM>,
-            format: ::std::sync::Arc<F>,
+            format: ::std::sync::Arc<::distbench::encoding::Formatter>,
             community: ::std::sync::Arc<::distbench::community::Community<T, CM>>,
+            path: ::distbench::algorithm::AlgoPath,
         ) -> Self {
             Self {
                 connection_manager,
                 format,
                 community,
+                path,
                 _phantom: ::std::marker::PhantomData,
             }
         }
@@ -1011,7 +948,6 @@ pub mod echo {
                                 .message(&Message {
                                     sender: "Test".to_string(),
                                     message: "Hello, world!".to_string(),
-                                    payload: "str".to_string(),
                                 })
                                 .await
                             {
@@ -1168,11 +1104,7 @@ pub mod echo {
     }
     #[allow(dead_code)]
     impl Echo {
-        async fn message<T: AlgorithmMessage>(
-            &self,
-            src: PeerId,
-            msg: &Message<T>,
-        ) -> Option<String> {
+        async fn message(&self, src: PeerId, msg: &Message) -> Option<String> {
             {
                 {
                     let lvl = ::log::Level::Info;
@@ -1199,7 +1131,7 @@ pub mod echo {
             Some(msg.message.clone())
         }
     }
-    impl<F: ::distbench::Format> ::distbench::AlgorithmHandler<F> for Echo {
+    impl ::distbench::AlgorithmHandler for Echo {
         #[allow(
             elided_named_lifetimes,
             clippy::async_yields_async,
@@ -1217,8 +1149,7 @@ pub mod echo {
             src: ::distbench::community::PeerId,
             msg_type_id: String,
             msg_bytes: Vec<u8>,
-            keystore: ::distbench::community::KeyStore,
-            format: &'life1 F,
+            path: &'life1 [String],
         ) -> ::core::pin::Pin<
             Box<
                 dyn ::core::future::Future<
@@ -1243,11 +1174,10 @@ pub mod echo {
                 let src = src;
                 let msg_type_id = msg_type_id;
                 let msg_bytes = msg_bytes;
-                let keystore = keystore;
                 let __ret: Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> = {
                     use ::distbench::signing::Verifiable;
                     use ::distbench::Format;
-                    if msg_type_id == "Message<T>" {
+                    if msg_type_id == "Message" {
                         {
                             {
                                 let lvl = ::log::Level::Trace;
@@ -1256,7 +1186,7 @@ pub mod echo {
                                         { ::log::__private_api::GlobalLogger },
                                         format_args!(
                                             "AlgorithmHandler::handle - Deserializing message of type {0} from {1:?}",
-                                            "Message<T>",
+                                            "Message",
                                             src,
                                         ),
                                         lvl,
@@ -1270,21 +1200,22 @@ pub mod echo {
                                 }
                             }
                         };
-                        let msg = format
-                            .deserialize::<Message<T>>(&msg_bytes)
+                        let msg = __self
+                            .__formatter
+                            .deserialize::<Message>(&msg_bytes)
                             .map_err(|e| ::distbench::PeerError::DeserializationFailed {
                                 message: ::alloc::__export::must_use({
                                     ::alloc::fmt::format(
                                         format_args!(
                                             "Failed to deserialize message of type \'{0}\' from {1:?}: {2}",
-                                            "Message<T>",
+                                            "Message",
                                             src,
                                             e,
                                         ),
                                     )
                                 }),
                             })?;
-                        let msg = msg.verify(&keystore)?;
+                        let msg = msg.verify(&__self.__keystore)?;
                         {
                             {
                                 let lvl = ::log::Level::Trace;
@@ -1293,7 +1224,7 @@ pub mod echo {
                                         { ::log::__private_api::GlobalLogger },
                                         format_args!(
                                             "AlgorithmHandler::handle - Calling handler {0} (send/reply)",
-                                            "Message<T>",
+                                            "Message",
                                         ),
                                         lvl,
                                         &(
@@ -1328,7 +1259,7 @@ pub mod echo {
                                 }
                             }
                         };
-                        let reply_bytes = format.serialize(&reply).map_err(|e| {
+                        let reply_bytes = __self.__formatter.serialize(&reply).map_err(|e| {
                             ::distbench::PeerError::SerializationFailed {
                                 message: ::alloc::__export::must_use({
                                     ::alloc::fmt::format(format_args!(
@@ -1346,7 +1277,7 @@ pub mod echo {
                                         { ::log::__private_api::GlobalLogger },
                                         format_args!(
                                             "AlgorithmHandler::handle - Handler {0} completed, reply: {1} bytes",
-                                            "Message<T>",
+                                            "Message",
                                             reply_bytes.len(),
                                         ),
                                         lvl,
@@ -1380,7 +1311,7 @@ pub mod echo {
     impl EchoPeer {
         async fn message(
             &self,
-            msg: impl AsRef<Message<T>>,
+            msg: impl AsRef<Message>,
         ) -> Result<Option<String>, ::distbench::PeerError> {
             self.0.message(msg.as_ref()).await
         }
@@ -1394,7 +1325,7 @@ pub mod echo {
         )]
         fn message<'life0, 'life1, 'async_trait>(
             &'life0 self,
-            msg: &'life1 Message<T>,
+            msg: &'life1 Message,
         ) -> ::core::pin::Pin<
             Box<
                 dyn ::core::future::Future<Output = Result<Option<String>, ::distbench::PeerError>>
@@ -1407,9 +1338,8 @@ pub mod echo {
             'life1: 'async_trait,
             Self: 'async_trait;
     }
-    impl<F, T, CM> EchoPeerService for EchoPeerInner<F, T, CM>
+    impl<F, T, CM> EchoPeerService for EchoPeerInner<T, CM>
     where
-        F: ::distbench::Format,
         T: ::distbench::transport::Transport,
         CM: ::distbench::transport::ConnectionManager<T>,
     {
@@ -1427,7 +1357,7 @@ pub mod echo {
         )]
         fn message<'life0, 'life1, 'async_trait>(
             &'life0 self,
-            msg: &'life1 Message<T>,
+            msg: &'life1 Message,
         ) -> ::core::pin::Pin<
             Box<
                 dyn ::core::future::Future<Output = Result<Option<String>, ::distbench::PeerError>>
@@ -1460,7 +1390,7 @@ pub mod echo {
                                     { ::log::__private_api::GlobalLogger },
                                     format_args!(
                                         "Peer::{0} - Serializing message of type {1}",
-                                        "message", "Message<T>",
+                                        "message", "Message",
                                     ),
                                     lvl,
                                     &(
@@ -1478,13 +1408,16 @@ pub mod echo {
                             message: ::alloc::__export::must_use({
                                 ::alloc::fmt::format(format_args!(
                                     "Failed to serialize message of type \'{0}\': {1}",
-                                    "Message<T>", e,
+                                    "Message", e,
                                 ))
                             }),
                         }
                     })?;
-                    let envelope =
-                        ::distbench::NodeMessage::Algorithm("Message<T>".to_string(), msg_bytes);
+                    let envelope = ::distbench::NodeMessage::Algorithm(
+                        "Message".to_string(),
+                        msg_bytes,
+                        __self.path.clone(),
+                    );
                     {
                         {
                             let lvl = ::log::Level::Trace;

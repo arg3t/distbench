@@ -148,7 +148,6 @@ pub(crate) fn extract_fields(
 /// * `config_fields` - The configuration fields to include
 pub(crate) fn generate_config_struct(
     alg_name: &syn::Ident,
-    comm_config: &Option<syn::Ident>,
     config_fields: &[ConfigField],
 ) -> TokenStream2 {
     let config_name = syn::Ident::new(
@@ -156,7 +155,7 @@ pub(crate) fn generate_config_struct(
         proc_macro2::Span::call_site(),
     );
 
-    let mut field_defs: Vec<_> = config_fields
+    let field_defs: Vec<_> = config_fields
         .iter()
         .map(|cf| {
             let name = &cf.field_name;
@@ -164,10 +163,6 @@ pub(crate) fn generate_config_struct(
             quote! { pub #name: Option<#ty> }
         })
         .collect();
-
-    if let Some(comm_config) = comm_config {
-        field_defs.push(quote! { pub comm: #comm_config });
-    }
 
     quote! {
         #[derive(::serde::Serialize, ::serde::Deserialize)]
