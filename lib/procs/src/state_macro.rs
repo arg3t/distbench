@@ -96,6 +96,10 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
             let parent_field: Field = syn::parse_quote! {
                 __parent: ::std::sync::OnceLock<::std::sync::Weak<dyn ::distbench::algorithm::DeliverableAlgorithm>>
             };
+            let child_deliverables_field: Field = syn::parse_quote! {
+                #[allow(dead_code)]
+                __child_deliverables: ::std::sync::Mutex<::std::vec::Vec<::std::sync::Arc<dyn ::distbench::algorithm::DeliverableAlgorithm>>>
+            };
 
             fields.named.extend(vec![
                 id_field,
@@ -108,6 +112,7 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
                 formatter_field,
                 path_field,
                 parent_field,
+                child_deliverables_field,
             ]);
         }
     }
@@ -183,9 +188,11 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
                 self.__parent.set(parent).map_err(|_| ::distbench::ConfigError::SetParentError { child_name: self.name().to_string() })
             }
 
-            async fn deliver(&self, src: ::distbench::community::PeerId, msg_bytes: Vec<u8>) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+            async fn deliver(&self, src: ::distbench::community::PeerId, msg_bytes: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(parent) = self.__parent.get() {
+                    println!("DeliverableAlgorithm::deliver - Parent found");
                     if let Some(parent_arc) = parent.upgrade() {
+                        println!("DeliverableAlgorithm::deliver - Parent upgrade successful");
                         return parent_arc.deliver(src, msg_bytes).await;
                     }
                 }
@@ -250,6 +257,7 @@ fn generate_child_field_initializers(
         weak_setters.push(quote! {
             let deliverable_arc: ::std::sync::Arc<dyn ::distbench::algorithm::DeliverableAlgorithm> = ::std::sync::Arc::new(#deliverable_struct_name::new(self_arc.clone()));
             self_arc.#name.set_parent(::std::sync::Arc::downgrade(&deliverable_arc))?;
+            self_arc.__child_deliverables.lock().unwrap().push(deliverable_arc);
         });
     }
 
@@ -288,7 +296,8 @@ fn generate_factory_impl(
         proc_macro2::Span::call_site(),
     );
 
-    let (builders, initializers, weak_setters) = generate_child_field_initializers(alg_name, child_fields);
+    let (builders, initializers, weak_setters) =
+        generate_child_field_initializers(alg_name, child_fields);
 
     quote! {
         impl<T, CM> ::distbench::AlgorithmFactory<T, CM> for #config_name
@@ -342,6 +351,7 @@ fn generate_factory_impl(
                     __id: id,
                     __path: path,
                     __parent: ::std::sync::OnceLock::new(),
+                    __child_deliverables: ::std::sync::Mutex::new(::std::vec::Vec::new()),
                 });
 
                 #(#weak_setters)*
@@ -381,8 +391,44 @@ fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
 /// Generate the message handler block that calls the respective algorithm's handler.
 fn generate_algorithm_handler_impl(
     self_ty: &syn::Ident,
-    _child_fields: &[ChildField],
+    child_fields: &[ChildField],
 ) -> TokenStream2 {
+    // Generate match arms for routing to child algorithms
+    let child_routing = if !child_fields.is_empty() {
+        let match_arms: Vec<_> = child_fields.iter().map(|field| {
+            let field_name = &field.field_name;
+            let field_name_str = field_name.to_string();
+            quote! {
+                #field_name_str => {
+                    ::log::trace!("AlgorithmHandler::handle - Routing to child algorithm: {}", #field_name_str);
+                    return self.#field_name.handle(src, msg_type_id, msg_bytes, &path[1..]).await;
+                }
+            }
+        }).collect();
+
+        quote! {
+            if !path.is_empty() {
+                let child_name = &path[0];
+                ::log::trace!("AlgorithmHandler::handle - Path not empty, routing to child: {}", child_name);
+                match child_name.as_str() {
+                    #(#match_arms)*
+                    _ => {
+                        return Err(::distbench::PeerError::UnknownChild {
+                            child: child_name.clone()
+                        }.into());
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {
+            if !path.is_empty() {
+                return Err(::distbench::PeerError::NoChildAlgorithms {
+                }.into());
+            }
+        }
+    };
+
     quote! {
         #[async_trait::async_trait]
         impl ::distbench::AlgorithmHandler for #self_ty {
@@ -393,8 +439,13 @@ fn generate_algorithm_handler_impl(
                 msg_bytes: Vec<u8>,
                 path: &[String],
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-                // TODO: Implement the message handler block
-                todo!()
+                ::log::trace!("AlgorithmHandler::handle - Received message type '{}' from {:?}, path: {:?}", msg_type_id, src, path);
+
+                #child_routing
+
+                // If we reach here, path is empty, so handle locally
+                ::log::trace!("AlgorithmHandler::handle - Handling message locally");
+                self.handle_msg(src, msg_type_id, msg_bytes).await
             }
         }
     }

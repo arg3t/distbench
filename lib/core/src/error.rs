@@ -46,6 +46,14 @@ pub enum PeerError {
     /// The signature is invalid.
     #[error("Invalid signature: {peer_id}")]
     InvalidSignature { peer_id: String },
+
+    /// Unknown child algorithm.
+    #[error("Unknown child algorithm: {child}")]
+    UnknownChild { child: String },
+
+    /// No child algorithms.
+    #[error("No child algorithms")]
+    NoChildAlgorithms,
 }
 
 /// Errors that can occur during algorithm configuration.

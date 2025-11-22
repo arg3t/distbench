@@ -3,7 +3,7 @@ use distbench::community::{Community, PeerId};
 use distbench::transport::channel::{ChannelTransport, ChannelTransportBuilder};
 use distbench::transport::tcp::{TcpAddress, TcpTransport};
 use distbench::transport::{ConnectionManager, ThinConnectionManager};
-use distbench::{BincodeFormat, Format, Formatter, JsonFormat};
+use distbench::{BincodeFormat, Formatter, JsonFormat};
 use log::{error, info};
 use runner::config::{load_config, ConfigFile};
 use runner::logging::init_logger;
