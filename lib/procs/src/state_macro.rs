@@ -56,11 +56,24 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
         if let Fields::Named(ref mut fields) = data_struct.fields {
             // Remove config and child attributes from all fields
             for field in fields.named.iter_mut() {
+                // Check if the field has #[distbench::child]
+                let has_child_attr = field.attrs.iter().any(|attr| {
+                    let path_str = attr.into_token_stream().to_string().replace(" ", "");
+                    path_str.contains("distbench::child")
+                });
+
+                // Remove config and child attributes
                 field.attrs.retain(|attr| {
                     let path_str = attr.into_token_stream().to_string().replace(" ", "");
                     !path_str.contains("distbench::config")
                         && !path_str.contains("distbench::child")
                 });
+
+                // Wrap the type in Arc if it had the child attribute
+                if has_child_attr {
+                    let orig_ty = std::mem::replace(&mut field.ty, syn::parse_quote! { () });
+                    field.ty = syn::parse_quote! { std::sync::Arc<#orig_ty> };
+                }
             }
 
             let id_field: Field = syn::parse_quote! {

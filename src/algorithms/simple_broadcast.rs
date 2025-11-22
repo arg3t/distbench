@@ -125,7 +125,7 @@ pub struct SimpleBroadcastUpper {
     echo_received: Mutex<Vec<BroadcastEcho>>,
 
     #[distbench::child]
-    broadcast: Arc<SimpleBroadcast>,
+    broadcast: SimpleBroadcast,
 }
 
 #[async_trait]

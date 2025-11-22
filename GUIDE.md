@@ -307,7 +307,7 @@ pub struct UpperLayer {
 
     // Child algorithm
     #[distbench::child]
-    broadcast: Arc<LowerLayer>,
+    broadcast: LowerLayer,
 }
 ```
 

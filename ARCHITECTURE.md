@@ -277,7 +277,6 @@ The framework supports hierarchical algorithm composition:
 **Child Algorithm Fields**:
 
 - Marked with `#[distbench::child]` attribute
-- Must be wrapped in `Arc<ChildAlgorithm>`
 - Automatically initialized and configured during algorithm creation
 - Have their own lifecycle tied to parent algorithm
 
