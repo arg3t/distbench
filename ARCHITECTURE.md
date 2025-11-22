@@ -22,7 +22,7 @@ The framework provides infrastructure for implementing and testing distributed a
 ┌─────────────────────────────────┐
 │   Algorithm Implementation      │  User-defined algorithm logic
 ├─────────────────────────────────┤
-│   Algorithm Framework Layer     │  State, handlers, lifecycle
+│   Algorithm Framework Layer     │  State, handlers, lifecycle, layering
 ├─────────────────────────────────┤
 │   Node Management Layer         │  Node lifecycle, coordination
 ├─────────────────────────────────┤
@@ -33,6 +33,29 @@ The framework provides infrastructure for implementing and testing distributed a
 │   Transport Layer              │  Network abstraction
 └─────────────────────────────────┘
 ```
+
+### Algorithm Layering Architecture
+
+In addition to the system layers above, algorithms themselves can be layered hierarchically:
+
+```
+┌─────────────────────────────────┐
+│   Parent Algorithm              │
+│   ┌─────────────────────────┐   │
+│   │  Child Algorithm 1      │   │  deliver() ↑
+│   └─────────────────────────┘   │
+│   ┌─────────────────────────┐   │
+│   │  Child Algorithm 2      │   │  method calls ↓
+│   └─────────────────────────┘   │
+└─────────────────────────────────┘
+```
+
+**Key Properties**:
+- Parent algorithms contain child algorithms as fields
+- Children deliver messages upward to parents
+- Parents call methods downward on children
+- Each layer has independent state and handlers
+- Configuration cascades from parent to children
 
 ## Component Details
 
@@ -195,22 +218,54 @@ Algorithms must implement:
 
 #### Message Handler Trait
 
-Algorithms handle incoming messages:
-- `handle(src, msg_type_id, msg_bytes, format)`: Process incoming message
-  - Returns `Some(response_bytes)` for request-response
-  - Returns `None` for fire-and-forget messages
+Algorithms handle incoming messages through two mechanisms:
+
+1. **Direct Message Handling**:
+   - `handle(src, msg_type_id, msg_bytes, path)`: Process incoming message
+     - Returns `Some(response_bytes)` for request-response
+     - Returns `None` for fire-and-forget messages
+     - Uses `path` parameter to route to child algorithms
+
+2. **Deliverable Algorithm Interface**:
+   - `deliver(src, msg_bytes)`: Receive messages from child algorithms
+     - Used for parent-child communication in layered architectures
+     - Deserializes envelope format: `(message_type: String, payload: Vec<u8>)`
+     - Routes to appropriate handler based on message type
 
 #### Algorithm State
 
 Each algorithm has:
 - **Configuration Fields**: Loaded from config file at startup
 - **Internal State**: Algorithm-specific data
+- **Child Algorithms**: Optional child algorithms for layered architectures
 - **Peer Access**: Methods to access connection managers for sending messages:
   - `peers()`: Iterator over all neighbor peers
   - `id()`: Get this node's unique identifier
   - `N()`: Get total number of nodes in the system
   - `sign(message)`: Create cryptographically signed message
+  - `deliver(src, msg_bytes)`: Send message to parent algorithm (if exists)
 - **Termination Signal**: Mechanism to signal completion
+
+#### Algorithm Layering
+
+The framework supports hierarchical algorithm composition:
+
+**Child Algorithm Fields**:
+- Marked with `#[distbench::child]` attribute
+- Must be wrapped in `Arc<ChildAlgorithm>`
+- Automatically initialized and configured during algorithm creation
+- Have their own lifecycle tied to parent algorithm
+
+**Parent-Child Communication**:
+- Children can deliver messages to parents using `self.deliver()`
+- Parents intercept child messages using `#[distbench::handlers(from = child_name)]`
+- Message format: `(message_type_id: String, serialized_payload: Vec<u8>)`
+- Parents can call public methods on child algorithms
+
+**Configuration Hierarchy**:
+- Parent configuration can include nested child configuration
+- Each child has its own configuration namespace
+- YAML anchors supported for reusable configuration templates
 
 ### 6. Serialization Layer
 
@@ -243,7 +298,7 @@ Where:
 
 ## Message Flow
 
-### Sending a Message
+### Sending a Message (Peer-to-Peer)
 
 1. Algorithm calls peer method: `peer.my_message(&msg).await`
 2. Framework serializes message using configured format
@@ -252,17 +307,50 @@ Where:
 5. Connection manager sends bytes via transport
 6. For request-response, wait for reply and deserialize
 
-### Receiving a Message
+### Receiving a Message (Peer-to-Peer)
 
 1. Transport receives bytes from network
 2. Server handler is invoked with source address and bytes
 3. Outer envelope (NodeMessage) is deserialized with rkyv
 4. If lifecycle message (Started/Finished): update peer status
 5. If algorithm message: extract type ID and payload
-6. Algorithm handler is invoked
-7. Handler deserializes payload using configured format
-8. Handler processes message and optionally returns response
-9. Response is serialized and sent back
+6. Algorithm handler is invoked with path parameter
+7. If path is non-empty, route to child algorithm
+8. Handler deserializes payload using configured format
+9. Handler processes message and optionally returns response
+10. Response is serialized and sent back
+
+### Message Flow in Layered Algorithms
+
+#### Child-to-Parent Message Delivery
+
+1. Child algorithm calls `self.deliver(src, &envelope_bytes).await`
+2. Child serializes message envelope: `(message_type_id, payload_bytes)`
+3. Framework checks if parent exists via weak reference
+4. Parent's `deliver()` method is invoked
+5. Parent deserializes envelope to extract message type ID
+6. Parent routes to handler marked with `#[distbench::handlers(from = child_name)]`
+7. Handler deserializes payload and processes message
+8. Handler optionally returns response bytes
+
+#### Parent-to-Child Method Call
+
+1. Parent algorithm calls public method on child: `self.child.method().await`
+2. This is a direct method call (not message passing)
+3. Child method executes and returns result
+4. No serialization/deserialization involved
+
+#### Message Routing with Path
+
+When a message arrives at a parent algorithm with children:
+
+1. Handler receives `path` parameter: `["child_name", "grandchild_name", ...]`
+2. If path is empty: handle message locally
+3. If path is non-empty:
+   - Extract first element as child name
+   - Look up child algorithm by name
+   - Forward message to child's `handle()` with remaining path
+   - Child recursively applies same routing logic
 
 ## Configuration System
 
@@ -281,19 +369,67 @@ node_id:
 **Special Behavior**:
 - If `neighbours` is an empty list, the node automatically connects to all other nodes (fully connected topology)
 - This simplifies configuration for algorithms that require full connectivity (e.g., broadcast, consensus)
+- Keys starting with `_` (underscore) are ignored and can be used for YAML templates
 
 ### Configuration Loading
 
 1. Parse YAML file into map of node definitions
-2. Extract standard fields (neighbours, host, port)
-3. Remaining fields are passed to algorithm as configuration
-4. Algorithm factory deserializes config into typed configuration struct
+2. Filter out template entries (keys starting with `_`)
+3. Extract standard fields (neighbours, host, port)
+4. Remaining fields are passed to algorithm as configuration
+5. Algorithm factory deserializes config into typed configuration struct
+6. For layered algorithms, child configurations are extracted and passed recursively
 
 ### Algorithm Configuration
 
 Algorithms define configuration via attributes:
 - Required fields: Must be present in config file
 - Optional fields: Use default value if not specified
+
+### Nested Configuration for Layered Algorithms
+
+Child algorithms are configured using nested YAML structures:
+
+```yaml
+node1:
+  neighbours: [node2]
+  parent_field: value
+  # Child algorithm configuration
+  child_name:
+    child_field: value
+```
+
+The framework automatically:
+1. Extracts nested configuration for each child
+2. Passes child config to child algorithm factory
+3. Builds child algorithm with its configuration
+4. Links child to parent with weak reference
+
+### YAML Anchors and Templates
+
+Configuration files support YAML anchors for reusable configuration:
+
+```yaml
+# Template (ignored due to _ prefix)
+_template: &shared_config
+  algorithm_field: "value"
+  child_algorithm:
+    child_field: "child_value"
+
+node1:
+  <<: *shared_config  # Merge template
+  neighbours: [node2]
+
+node2:
+  <<: *shared_config
+  neighbours: [node1]
+```
+
+**Benefits**:
+- Reduces duplication in configuration files
+- Makes it easy to change shared settings
+- Particularly useful for layered algorithms with complex nested configs
+- Template keys (starting with `_`) are automatically filtered out
 
 ## Execution Modes
 
@@ -315,7 +451,7 @@ Algorithms define configuration via attributes:
 
 ## Code Generation
 
-The framework uses build-time code generation:
+The framework uses build-time code generation and procedural macros:
 
 ### Algorithm Registry
 
@@ -326,11 +462,26 @@ The framework uses build-time code generation:
 
 ### Generated Components
 
-For each algorithm, generate:
-- Configuration struct
+For each algorithm, the `#[distbench::state]` macro generates:
+- Configuration struct (including nested child configurations)
 - Algorithm factory implementation
+- Child algorithm initialization and linking code
+- Helper methods (`peers()`, `id()`, `N()`, `deliver()`, etc.)
+- Weak reference management for parent-child relationships
+
+For each handler implementation, the `#[distbench::handlers]` macro generates:
 - Message handler dispatch logic
-- Peer proxy methods
+- Peer proxy methods for each handler
+- For `#[distbench::handlers(from = child)]`: DeliverableAlgorithm implementation
+
+### Layering-Specific Generation
+
+When child algorithms are detected:
+1. **Child Field Initialization**: Generate code to build each child with its config
+2. **Parent Reference Setup**: Generate code to set weak parent references
+3. **DeliverableAlgorithm Wrapper**: Generate struct implementing DeliverableAlgorithm
+4. **Message Routing**: Generate dispatch code to route messages from child to parent handlers
+5. **Lifecycle Management**: Store child deliverable instances to prevent premature cleanup
 
 ## Implementation Requirements
 
@@ -349,6 +500,7 @@ For each algorithm, generate:
 - Nodes must support both self-termination and external stop signals
 - Algorithm termination should trigger graceful shutdown
 - Must handle case where some nodes terminate before others
+- Child algorithm termination should be coordinated with parent
 
 #### Status Tracking
 
@@ -367,6 +519,32 @@ For each algorithm, generate:
 - No strict ordering guarantees required
 - Implementation may provide ordered delivery per connection
 - Algorithm should not assume global message ordering
+
+#### Algorithm Layering Implementation
+
+**Parent-Child Lifecycle**:
+- Child algorithms are built before parent algorithm initialization completes
+- Parent holds strong references (Arc) to children
+- Children hold weak references to parent (to avoid circular references)
+- Child deliverable wrappers are stored in parent to prevent premature cleanup
+
+**Message Delivery**:
+- Children serialize messages before calling `deliver()`
+- Envelope format: `(message_type_id: String, payload: Vec<u8>)`
+- Parent upgrades weak reference to call `deliver()` on parent
+- If parent reference is dropped, delivery fails silently
+
+**Configuration Parsing**:
+- Must support nested YAML structures
+- Must filter out template keys (starting with `_`)
+- Must support YAML anchors and merge keys (`<<: *anchor`)
+- Child configurations are extracted from parent config by field name
+
+**Memory Management**:
+- Use weak references from child to parent to avoid cycles
+- Parent stores Arc to DeliverableAlgorithm implementation for each child
+- This keeps the deliverable alive as long as parent exists
+- Prevents "cannot upgrade weak reference" errors during message delivery
 
 ## Extensibility Points
 

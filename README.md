@@ -15,6 +15,7 @@ Distbench handles the infrastructure concerns (networking, message passing, node
 - 🔄 **Three Execution Modes** - Offline, Local (via localhost), Network
 - 🔐 **Cryptographic Signing** - Built-in Ed25519 signatures for Byzantine algorithms
 - ⚡ **Automatic Lifecycle** - Node synchronization and coordination handled for you
+- 🏗️ **Algorithm Layering** - Compose complex protocols from simpler building blocks
 
 ## 🚀 Quick Start
 
@@ -48,6 +49,7 @@ cargo run --release -- \
 - **[Echo](src/algorithms/echo.rs)** - Simple request-response pattern
 - **[Chang-Roberts](src/algorithms/chang_roberts.rs)** - Ring-based leader election
 - **[Message Chain](src/algorithms/message_chain.rs)** - Demonstrates cryptographic signatures
+- **[Simple Broadcast](src/algorithms/simple_broadcast.rs)** - Demonstrates algorithm layering with parent-child communication
 
 ## 📖 Documentation
 
@@ -117,8 +119,9 @@ Quick overview:
 2. Define algorithm state with `#[distbench::state]`
 3. Implement the `Algorithm` trait (lifecycle hooks)
 4. Define message handlers with `#[distbench::handlers]`
-5. Create a configuration file
-6. Run with `cargo run -- --config config.yaml --algorithm YourAlgorithm`
+5. Optionally compose algorithms using `#[distbench::child]` for layering
+6. Create a configuration file (with YAML anchors for reusable configs)
+7. Run with `cargo run -- --config config.yaml --algorithm YourAlgorithm`
 
 ## 🤝 Contributing
 

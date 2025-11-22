@@ -7,6 +7,7 @@ This guide teaches you how to implement distributed algorithms using the Distben
 - [Overview](#overview)
 - [Step-by-Step Tutorial](#step-by-step-tutorial)
 - [Algorithm API Reference](#algorithm-api-reference)
+- [Algorithm Layering](#algorithm-layering)
 - [Signed Messages](#signed-messages)
 - [Configuration](#configuration)
 - [Example Algorithms](#example-algorithms)
@@ -244,6 +245,171 @@ for (_, peer) in self.peers() {
 }
 ```
 
+## Algorithm Layering
+
+The framework supports **algorithm layering**, which allows you to compose complex distributed protocols from simpler building blocks. This is particularly useful for:
+
+- **Separation of concerns** - Split protocol logic into independent layers
+- **Reusability** - Use the same lower-layer protocol with different upper layers
+- **Modularity** - Test and develop each layer independently
+
+### How Layering Works
+
+A **parent algorithm** can have one or more **child algorithms**. Child algorithms:
+- Run as part of the parent algorithm's lifecycle
+- Can deliver messages up to the parent
+- Have their own message handlers and state
+
+The parent algorithm can:
+- Intercept messages from child algorithms
+- Call methods on child algorithms
+- Configure child algorithms independently
+
+### Defining a Layered Algorithm
+
+#### Step 1: Mark Child Algorithms
+
+Use the `#[distbench::child]` attribute to declare child algorithms:
+
+```rust
+#[distbench::state]
+pub struct UpperLayer {
+    #[distbench::config(default = false)]
+    start_node: bool,
+
+    messages_from_lower: AtomicU64,
+
+    // Child algorithm
+    #[distbench::child]
+    broadcast: Arc<LowerLayer>,
+}
+```
+
+#### Step 2: Child Delivers Messages to Parent
+
+In the child algorithm, use `self.deliver()` to send messages to the parent:
+
+```rust
+#[distbench::handlers]
+impl LowerLayer {
+    async fn broadcast_message(&self, src: PeerId, msg: &BroadcastMessage) -> Option<String> {
+        info!("LowerLayer: Received message from {}", src);
+
+        // Deliver to parent layer
+        if let Ok(msg_bytes) = self.__formatter.serialize(msg) {
+            let envelope = ("BroadcastMessage".to_string(), msg_bytes);
+            if let Ok(envelope_bytes) = self.__formatter.serialize(&envelope) {
+                let _ = self.deliver(src, &envelope_bytes).await;
+            }
+        }
+
+        Some("Acknowledged".to_string())
+    }
+}
+```
+
+**Important:** The message envelope must be a tuple of `(String, Vec<u8>)` where:
+- The string is the message type name (e.g., `"BroadcastMessage"`)
+- The bytes are the serialized message payload
+
+#### Step 3: Parent Intercepts Child Messages
+
+Use `#[distbench::handlers(from = child_name)]` to intercept messages from a child:
+
+```rust
+#[distbench::handlers(from = broadcast)]
+impl UpperLayer {
+    async fn broadcast_message(&self, src: PeerId, msg: &BroadcastMessage) -> Option<String> {
+        info!(
+            "UpperLayer: Intercepted message from lower layer! Source: {}, {} bytes",
+            src,
+            msg.content.len()
+        );
+        self.messages_from_lower.fetch_add(1, Ordering::Relaxed);
+
+        Some(format!("Upper layer saw {} bytes", msg.content.len()))
+    }
+}
+```
+
+**Note:** The handler name must match the message type name from the child's `deliver()` call.
+
+#### Step 4: Parent Calls Child Methods
+
+The parent can call public methods on the child algorithm:
+
+```rust
+#[async_trait]
+impl Algorithm for UpperLayer {
+    async fn on_start(&self) {
+        if self.start_node {
+            info!("UpperLayer: Initiating broadcast through lower layer");
+            let test_data = b"Hello from upper layer!".to_vec();
+            self.broadcast.broadcast(test_data).await;
+        }
+    }
+}
+```
+
+### Configuring Layered Algorithms
+
+Child algorithms are configured using nested structures in the YAML configuration file:
+
+```yaml
+node1:
+  neighbours: [node2, node3]
+  start_node: true
+  # Child algorithm configuration
+  broadcast:
+    dummy_config: "lower_layer_value"
+
+node2:
+  neighbours: [node1, node3]
+  start_node: false
+  broadcast:
+    dummy_config: "lower_layer_value"
+```
+
+#### Using YAML Anchors for Reusability
+
+You can use YAML anchors to avoid repeating configuration:
+
+```yaml
+# Shared template (starts with _ to indicate it's not a node)
+_template: &config_template
+  dummy_config: "shared_value"
+  broadcast:
+    dummy_config: "shared_lower_layer"
+
+node1:
+  <<: *config_template  # Merge template
+  neighbours: [node2, node3]
+  start_node: true
+
+node2:
+  <<: *config_template
+  neighbours: [node1, node3]
+  start_node: false
+```
+
+**Note:** Keys starting with `_` are ignored and can be used for templates.
+
+### Complete Example
+
+See **[Simple Broadcast](src/algorithms/simple_broadcast.rs)** for a complete working example that demonstrates:
+- A `SimpleBroadcast` lower layer that broadcasts messages
+- A `SimpleBroadcastUpper` parent layer that intercepts and tracks messages
+- Communication between layers using `deliver()`
+- Nested configuration with YAML anchors
+
+### Layering Best Practices
+
+1. **Clear Responsibilities** - Each layer should have a well-defined purpose
+2. **Minimal Coupling** - Layers should communicate through well-defined message types
+3. **Independent Testing** - Each layer should be testable on its own
+4. **Documentation** - Document the interface between layers clearly
+5. **Error Handling** - Handle serialization errors when using `deliver()`
+
 ## Signed Messages
 
 The framework provides `Signed<M>` for Byzantine fault-tolerant algorithms.
@@ -347,6 +513,13 @@ Study these examples to learn different patterns:
 - **Concepts:** Signed messages, message collections, deduplication
 - **Complexity:** Advanced
 - **Note:** Demonstrates `Signed<M>` in vectors
+
+### [Simple Broadcast](src/algorithms/simple_broadcast.rs)
+
+- **Pattern:** Layered architecture with parent-child communication
+- **Concepts:** Algorithm layering, message delivery between layers, nested configuration
+- **Complexity:** Intermediate
+- **Note:** Demonstrates how to build modular protocols using child algorithms
 
 ## Testing
 
