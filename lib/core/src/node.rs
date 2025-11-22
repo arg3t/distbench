@@ -4,6 +4,8 @@
 //! in a distributed system, along with supporting types for peer communication.
 
 use async_trait::async_trait;
+use dashmap::mapref::one::Ref;
+use dashmap::DashMap;
 use log::{error, trace};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -24,6 +26,46 @@ use crate::status::NodeStatus;
 use crate::transport::{self, ConnectionManager, Server, Transport, TransportError};
 use crate::NODE_ID_CTX;
 use crate::{Formatter, SelfTerminating};
+
+#[derive(Clone)]
+pub struct NodeSet(Arc<DashMap<PeerId, PublicKey>>);
+
+/// `NodeSet` is a utility wrapper around `KeyStore` providing HashSet functionality
+/// over the keys.
+impl NodeSet {
+    pub fn new(keys: Arc<DashMap<PeerId, PublicKey>>) -> Self {
+        Self(keys)
+    }
+
+    pub fn contains(&self, id: &PeerId) -> bool {
+        self.0.contains_key(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = PeerId> + '_ {
+        self.0.iter().map(|entry| entry.key().clone())
+    }
+}
+
+impl std::fmt::Debug for NodeSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "NodeSet({:?})",
+            self.0
+                .iter()
+                .map(|entry| entry.key().clone())
+                .collect::<Vec<PeerId>>()
+        )
+    }
+}
 
 /// Internal peer representation for node-to-node communication.
 ///

@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use log::trace;
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto::PublicKey, status::NodeStatus, transport};
+use crate::{crypto::PublicKey, node::NodeSet, status::NodeStatus, transport};
 
 /// Unique identifier for a peer in the distributed system.
 ///
@@ -246,10 +246,16 @@ impl<T: transport::Transport + 'static, CM: transport::ConnectionManager<T>> Com
         );
     }
 
+    /// Returns the keystore for the community.
     pub fn keystore(&self) -> KeyStore {
         KeyStore {
             keys: self.keys.clone(),
         }
+    }
+
+    /// Returns a `NodeSet` for the community.
+    pub fn nodeset(&self) -> NodeSet {
+        NodeSet::new(self.keys.clone())
     }
 
     /// Returns the number of nodes in the community.

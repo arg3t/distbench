@@ -100,6 +100,9 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
                 #[allow(dead_code)]
                 __child_deliverables: ::std::sync::Mutex<::std::vec::Vec<::std::sync::Arc<dyn ::distbench::algorithm::DeliverableAlgorithm>>>
             };
+            let nodeset_field: Field = syn::parse_quote! {
+                __nodeset: ::distbench::node::NodeSet
+            };
 
             fields.named.extend(vec![
                 id_field,
@@ -113,6 +116,7 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
                 path_field,
                 parent_field,
                 child_deliverables_field,
+                nodeset_field,
             ]);
         }
     }
@@ -180,7 +184,10 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
 
                 ::distbench::signing::Signed::new(msg, signature, id)
             }
-            // TODO: Add Node IDS method
+
+            fn nodes(&self) -> ::distbench::node::NodeSet {
+                self.__nodeset.clone()
+            }
 
             pub fn set_parent(&self, parent: ::std::sync::Weak<dyn ::distbench::algorithm::DeliverableAlgorithm>) -> Result<(), ::distbench::ConfigError> {
                 use ::distbench::algorithm::Named;
@@ -349,6 +356,7 @@ fn generate_factory_impl(
                     __id: id,
                     __path: path,
                     __parent: ::std::sync::OnceLock::new(),
+                    __nodeset: community.nodeset(),
                     __child_deliverables: ::std::sync::Mutex::new(::std::vec::Vec::new()),
                 });
 
