@@ -5,10 +5,7 @@ This demonstrates the algorithm layering feature:
 - SimpleBroadcastUpper: An upper-layer algorithm that uses the lower layer
 """
 
-from __future__ import annotations
-
 import logging
-from typing import Any
 
 from distbench.algorithm import Algorithm
 from distbench.community import PeerId

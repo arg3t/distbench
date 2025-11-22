@@ -8,6 +8,7 @@ This guide teaches you how to implement distributed algorithms using the Python 
 -   [Step-by-Step Tutorial: PingPong](#step-by-step-tutorial-pingpong)
 -   [Algorithm API Reference](#algorithm-api-reference)
 -   [Signed Messages & Verification](#signed-messages--verification)
+-   [Algorithm Layering](#algorithm-layering)
 -   [Configuration](#configuration)
 -   [Example Algorithms](#example-algorithms)
 -   [Execution Modes & Testing](#execution-modes--testing)
@@ -283,6 +284,207 @@ The framework checks two things:
 
 If *either* check fails, the framework **automatically drops the message** and logs a warning. You do not need to call `self.verify()` in your handler.
 
+## Algorithm Layering
+
+The framework supports **algorithm layering**, which allows you to compose complex distributed protocols from simpler building blocks. This is particularly useful for:
+
+- **Separation of concerns** - Split protocol logic into independent layers
+- **Reusability** - Use the same lower-layer protocol with different upper layers
+- **Modularity** - Test and develop each layer independently
+
+### How Layering Works
+
+A **parent algorithm** can have one or more **child algorithms**. Child algorithms:
+- Run as part of the parent algorithm's lifecycle
+- Can deliver messages up to the parent
+- Have their own message handlers and state
+
+The parent algorithm can:
+- Intercept messages from child algorithms
+- Call methods on child algorithms
+- Configure child algorithms independently
+
+### Defining a Layered Algorithm
+
+#### Step 1: Mark Child Algorithms
+
+Use the `child_algorithm()` function to declare child algorithms in your parent class:
+
+```python
+from distbench import Algorithm, child_algorithm, distbench, config_field
+
+@distbench
+class UpperLayer(Algorithm):
+    # Configuration
+    start_node: bool = config_field(default=False)
+
+    # State
+    messages_from_lower: int = 0
+
+    # Child algorithm
+    broadcast: SimpleBroadcast = child_algorithm(SimpleBroadcast)
+```
+
+**Important**: The type annotation must match the child algorithm class.
+
+#### Step 2: Child Delivers Messages to Parent
+
+In the child algorithm, use `self.deliver_message()` to send messages to the parent:
+
+```python
+@distbench
+class LowerLayer(Algorithm):
+    @handler
+    async def broadcast_message(self, src: PeerId, msg: BroadcastMessage) -> str:
+        logger.info(f"LowerLayer: Received message from {src}")
+
+        # Deliver to parent (if any)
+        if self._parent:
+            await self.deliver_message(src, msg)
+
+        return "Acknowledged"
+```
+
+**Note**: The child uses `self._parent` to check if it has a parent, and `self.deliver_message(src, msg)` to send messages up. The framework automatically handles serialization.
+
+#### Step 3: Parent Intercepts Child Messages
+
+Use `@handler(from_child="child_name")` to intercept messages from a child:
+
+```python
+@distbench
+class UpperLayer(Algorithm):
+    # Child algorithm
+    broadcast: SimpleBroadcast = child_algorithm(SimpleBroadcast)
+
+    @handler(from_child="broadcast")
+    async def on_broadcast(self, src: PeerId, msg: BroadcastMessage) -> None:
+        logger.info(
+            f"UpperLayer: Intercepted message from lower layer! "
+            f"Source: {src}, Content: {msg.content}"
+        )
+        self.messages_from_lower += 1
+```
+
+**Important**: The `from_child` parameter must match the attribute name of the child algorithm (in this case, `"broadcast"`).
+
+#### Step 4: Parent Calls Child Methods
+
+The parent can call public methods on the child algorithm:
+
+```python
+@distbench
+class UpperLayer(Algorithm):
+    broadcast: SimpleBroadcast = child_algorithm(SimpleBroadcast)
+    start_node: bool = config_field(default=False)
+
+    async def on_start(self) -> None:
+        if self.start_node:
+            logger.info("UpperLayer: Initiating broadcast through lower layer")
+            await self.broadcast.broadcast("Hello from upper layer!")
+```
+
+### Configuring Layered Algorithms
+
+Child algorithms are configured using nested structures in the YAML configuration file:
+
+```yaml
+node1:
+  neighbours: [node2, node3]
+  start_node: true
+  # Child algorithm configuration
+  broadcast:
+    is_sender: false
+
+node2:
+  neighbours: [node1, node3]
+  start_node: false
+  broadcast:
+    is_sender: false
+```
+
+#### Using YAML Anchors for Reusability
+
+You can use YAML anchors to avoid repeating configuration:
+
+```yaml
+# Shared template (starts with _ to indicate it's not a node)
+_template: &config_template
+  broadcast:
+    is_sender: false
+
+node1:
+  <<: *config_template  # Merge template
+  neighbours: [node2, node3]
+  start_node: true
+
+node2:
+  <<: *config_template
+  neighbours: [node1, node3]
+  start_node: false
+```
+
+**Note**: Keys starting with `_` are ignored and can be used for templates.
+
+### Complete Example
+
+See **[simple_broadcast.py](distbench/algorithms/simple_broadcast.py)** for a complete working example that demonstrates:
+- A `SimpleBroadcast` lower layer that broadcasts messages
+- A `SimpleBroadcastUpper` parent layer that intercepts and tracks messages
+- Communication between layers using `deliver_message()`
+- Nested configuration with YAML anchors
+
+The example shows:
+
+```python
+@message
+class BroadcastMessage:
+    content: str
+
+@distbench
+class SimpleBroadcast(Algorithm):
+    """Lower layer that handles broadcasting."""
+    is_sender: bool = config_field(default=False)
+
+    @handler
+    async def broadcast_message(self, src: PeerId, msg: BroadcastMessage) -> str:
+        # Deliver to parent if it exists
+        if self._parent:
+            await self.deliver_message(src, msg)
+        return "Ack"
+
+    async def broadcast(self, content: str) -> None:
+        """Public method for broadcasting."""
+        msg = BroadcastMessage(content=content)
+        for peer in self.peers.values():
+            await peer.broadcast_message(msg)
+
+@distbench
+class SimpleBroadcastUpper(Algorithm):
+    """Upper layer that uses SimpleBroadcast."""
+    start_node: bool = config_field(default=False)
+    broadcast: SimpleBroadcast = child_algorithm(SimpleBroadcast)
+    messages_received: int = 0
+
+    async def on_start(self) -> None:
+        if self.start_node:
+            await self.broadcast.broadcast("Hello from Upper Layer!")
+
+    @handler(from_child="broadcast")
+    async def on_broadcast(self, src: PeerId, msg: BroadcastMessage) -> None:
+        logger.info(f"Intercepted: {msg.content} from {src}")
+        self.messages_received += 1
+        await self.terminate()
+```
+
+### Layering Best Practices
+
+1. **Clear Responsibilities** - Each layer should have a well-defined purpose
+2. **Minimal Coupling** - Layers should communicate through well-defined message types
+3. **Independent Testing** - Each layer should be testable on its own
+4. **Documentation** - Document the interface between layers clearly
+5. **Error Handling** - Handle delivery errors when using `deliver_message()`
+
 ## Configuration
 
 ### File Format
@@ -315,9 +517,10 @@ n3:
 
 Study these examples to learn different patterns:
 
-  - **[echo](https://www.google.com/search?q=distbench/algorithms/echo.py)**: Request-response, `Signed[T]`, `report()`.
-  - **[chang\_roberts](https://www.google.com/search?q=distbench/algorithms/chang_roberts.py)**: Ring logic, ID comparison, message forwarding, termination.
-  - **[message\_chain](https://www.google.com/search?q=distbench/algorithms/message_chain.py)**: Forwarding chains, `Signed[T]` in collections (`list[Signed[...]]`), deduplication.
+  - **[echo.py](distbench/algorithms/echo.py)**: Request-response, `Signed[T]`, `report()`.
+  - **[chang_roberts.py](distbench/algorithms/chang_roberts.py)**: Ring logic, ID comparison, message forwarding, termination.
+  - **[message_chain.py](distbench/algorithms/message_chain.py)**: Forwarding chains, `Signed[T]` in collections (`list[Signed[...]]`), deduplication.
+  - **[simple_broadcast.py](distbench/algorithms/simple_broadcast.py)**: Layered architecture with parent-child communication, demonstrates `child_algorithm()` and `@handler(from_child=...)`.
 
 ## Execution Modes & Testing
 
