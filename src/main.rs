@@ -3,7 +3,7 @@ use distbench::community::{Community, PeerId};
 use distbench::transport::channel::{ChannelTransport, ChannelTransportBuilder};
 use distbench::transport::tcp::{TcpAddress, TcpTransport};
 use distbench::transport::{ConnectionManager, ThinConnectionManager};
-use distbench::{BincodeFormat, Format, JsonFormat};
+use distbench::{BincodeFormat, Format, Formatter, JsonFormat};
 use log::{error, info};
 use runner::config::{load_config, ConfigFile};
 use runner::logging::init_logger;
@@ -103,24 +103,20 @@ async fn main() {
         }
     }
 
-    match (&args.mode, &args.format) {
-        (Mode::Offline, FormatType::Json) => {
-            run_offline_mode(&args, &config, Arc::new(JsonFormat {})).await;
+    let formatter = match args.format {
+        FormatType::Json => Arc::new(Formatter::Json(JsonFormat {})),
+        FormatType::Bincode => Arc::new(Formatter::Bincode(BincodeFormat {})),
+    };
+
+    match args.mode {
+        Mode::Offline => {
+            run_offline_mode(&args, &config, formatter).await;
         }
-        (Mode::Offline, FormatType::Bincode) => {
-            run_offline_mode(&args, &config, Arc::new(BincodeFormat {})).await;
+        Mode::Local => {
+            run_local_mode(&args, &config, formatter).await;
         }
-        (Mode::Local, FormatType::Json) => {
-            run_local_mode(&args, &config, Arc::new(JsonFormat {})).await;
-        }
-        (Mode::Local, FormatType::Bincode) => {
-            run_local_mode(&args, &config, Arc::new(BincodeFormat {})).await;
-        }
-        (Mode::Network, FormatType::Json) => {
-            run_network_mode(&args, &config, Arc::new(JsonFormat {})).await;
-        }
-        (Mode::Network, FormatType::Bincode) => {
-            run_network_mode(&args, &config, Arc::new(BincodeFormat {})).await;
+        Mode::Network => {
+            run_network_mode(&args, &config, formatter).await;
         }
     };
 }
@@ -130,10 +126,10 @@ async fn main() {
 /// Runs the distributed system in offline mode.
 ///
 /// Spawns all nodes in the same process using in-memory channels for communication.
-async fn run_offline_mode<F: Format + 'static>(
+async fn run_offline_mode(
     args: &CliArgs,
     config: &runner::config::ConfigFile,
-    format: Arc<F>,
+    format: Arc<Formatter>,
 ) {
     let stop_signal = Arc::new(Notify::new());
     let builder = ChannelTransportBuilder::new();
@@ -187,10 +183,10 @@ async fn run_offline_mode<F: Format + 'static>(
 }
 
 /// Runs the distributed system in local mode (all nodes on localhost).
-async fn run_local_mode<F: Format + 'static>(
+async fn run_local_mode(
     args: &CliArgs,
     config: &runner::config::ConfigFile,
-    format: Arc<F>,
+    format: Arc<Formatter>,
 ) {
     let stop_signal = Arc::new(Notify::new());
     let mut handles = Vec::new();
@@ -255,10 +251,10 @@ async fn run_local_mode<F: Format + 'static>(
 }
 
 /// Runs one node in network mode.
-async fn run_network_mode<F: Format + 'static>(
+async fn run_network_mode(
     args: &CliArgs,
     config: &runner::config::ConfigFile,
-    format: Arc<F>,
+    formatter: Arc<Formatter>,
 ) {
     let stop_signal = Arc::new(Notify::new());
 
@@ -311,7 +307,7 @@ async fn run_network_mode<F: Format + 'static>(
         node_id,
         community,
         stop_signal.clone(),
-        format
+        formatter
     );
     let handles = vec![serve_handle]; // Use the same report handler
 

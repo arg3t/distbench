@@ -19,12 +19,11 @@ use crate::algorithm::Algorithm;
 use crate::algorithm::AlgorithmHandler;
 use crate::community::{Community, PeerId};
 use crate::crypto::{PrivateKey, PublicKey};
-use crate::encoding::{Format, JsonFormat};
 use crate::messages::NodeMessage;
 use crate::status::NodeStatus;
 use crate::transport::{self, ConnectionManager, Server, Transport, TransportError};
-use crate::SelfTerminating;
 use crate::NODE_ID_CTX;
+use crate::{Formatter, SelfTerminating};
 
 /// Internal peer representation for node-to-node communication.
 ///
@@ -230,12 +229,11 @@ impl Default for AlgoMetrics {
 ///     Arc::new(JsonFormat),
 /// )?;
 /// ```
-pub struct Node<T, CM, A, F = JsonFormat>
+pub struct Node<T, CM, A>
 where
     T: Transport,
     CM: ConnectionManager<T>,
     A: Algorithm,
-    F: Format,
 {
     id: PeerId,
     key: PrivateKey,
@@ -243,11 +241,11 @@ where
     status_rx: watch::Receiver<NodeStatus>,
     community: Arc<Community<T, CM>>,
     algo: Arc<A>,
-    format: Arc<F>,
+    format: Arc<Formatter>,
     metrics: Arc<AlgoMetrics>,
 }
 
-impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm, F: Format> Clone for Node<T, CM, A, F> {
+impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm> Clone for Node<T, CM, A> {
     fn clone(&self) -> Self {
         Self {
             id: self.id.clone(),
@@ -262,12 +260,11 @@ impl<T: Transport, CM: ConnectionManager<T>, A: Algorithm, F: Format> Clone for 
     }
 }
 
-impl<T, CM, A, F> Node<T, CM, A, F>
+impl<T, CM, A> Node<T, CM, A>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
     A: Algorithm + AlgorithmHandler + 'static,
-    F: Format,
 {
     /// Creates a new node with the specified ID, community, algorithm, and format.
     ///
@@ -286,7 +283,7 @@ where
         key: PrivateKey,
         community: Arc<Community<T, CM>>,
         algo: Arc<A>,
-        format: Arc<F>,
+        format: Arc<Formatter>,
     ) -> Result<Self, crate::error::ConfigError> {
         let (status_tx, status_rx) = watch::channel(NodeStatus::NotStarted);
         community.set_pubkey(id.clone(), key.pubkey());
@@ -490,12 +487,11 @@ where
 }
 
 #[async_trait]
-impl<T, CM, A, F> Server<T> for Node<T, CM, A, F>
+impl<T, CM, A> Server<T> for Node<T, CM, A>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
     A: Algorithm + AlgorithmHandler + 'static,
-    F: Format,
 {
     async fn handle(&self, src: &T::Address, msg: Vec<u8>) -> transport::Result<Option<Vec<u8>>> {
         let status = self.status_tx.borrow().clone();
@@ -609,12 +605,11 @@ where
 }
 
 #[async_trait]
-impl<T, CM, A, F> SelfTerminating for Node<T, CM, A, F>
+impl<T, CM, A> SelfTerminating for Node<T, CM, A>
 where
     T: Transport + 'static,
     CM: ConnectionManager<T> + 'static,
     A: Algorithm + AlgorithmHandler + 'static,
-    F: Format,
 {
     async fn terminate(&self) {
         trace!("Node::terminate - Initiating termination");

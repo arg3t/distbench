@@ -76,7 +76,7 @@ pub trait AlgorithmHandler: Send + Sync + 'static {
 /// Trait for algorithms to handle messages delivered from
 /// other algorithms.
 #[async_trait]
-pub trait AlgorithmDeliverer: Send + Sync + 'static {
+pub trait DeliverableAlgorithm: Send + Sync + 'static {
     /// Delivers a message to the algorithm.
     ///
     /// # Arguments

@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use async_trait::async_trait;
@@ -17,11 +20,13 @@ struct Message {
     message: String,
 }
 
-#[distbench::state(comm = Echo)]
+#[distbench::state]
 pub struct Test {
     #[distbench::config(default = false)]
     start_node: bool,
     messages_received: AtomicU64,
+    #[distbench::child]
+    echo: Arc<Echo>,
 }
 
 #[async_trait]
@@ -42,6 +47,15 @@ impl Algorithm for Test {
 #[distbench::handlers]
 impl Test {
     async fn message(&self, src: PeerId, msg: &Message) -> Option<String> {
+        info!("Received message from {}: {}", src.to_string(), msg.message);
+        self.messages_received.fetch_add(1, Ordering::Relaxed);
+        Some(msg.message.clone())
+    }
+}
+
+#[distbench::handlers(from = echo)]
+impl Test {
+    async fn echo(&self, src: PeerId, msg: &Message) -> Option<String> {
         info!("Received message from {}: {}", src.to_string(), msg.message);
         self.messages_received.fetch_add(1, Ordering::Relaxed);
         Some(msg.message.clone())

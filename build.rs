@@ -103,7 +103,7 @@ macro_rules! start_node {{
 
                 let key = PrivateKey::generate();
 
-                let algorithm = config.build($format.clone(), key.clone(), $peer_id.clone(), $community.clone())
+                let algorithm = config.build($format.clone(), key.clone(), $peer_id.clone(), $community.clone(), vec![])
                     .expect("Failed to build algorithm");
 
                 let node = ::distbench::Node::new(

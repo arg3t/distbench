@@ -62,8 +62,8 @@ pub fn state(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    handlers_macro::algorithm_handlers_impl(item)
+pub fn handlers(attr: TokenStream, item: TokenStream) -> TokenStream {
+    handlers_macro::algorithm_handlers_impl(attr, item)
 }
 
 /// Attribute macro for defining message types.

@@ -14,6 +14,12 @@ pub(crate) struct ConfigField {
     pub default_value: Option<syn::Expr>,
 }
 
+/// Information about a child algorithm field.
+pub(crate) struct ChildField {
+    pub field_name: syn::Ident,
+    pub field_type: Type,
+}
+
 /// Parses a field to check if it has a `#[distbench::config]` attribute.
 ///
 /// Supports two forms:
@@ -100,21 +106,45 @@ pub(crate) fn parse_config_field(field: &Field) -> Result<Option<ConfigField>, s
     Ok(None)
 }
 
-/// Checks if a field has a `#[distbench::child]` attribute.
+/// Parses a field to check if it has a `#[distbench::child]` attribute.
 ///
 /// # Arguments
 ///
-/// * `field` - The field to check
+/// * `field` - The field to parse
 ///
 /// # Returns
 ///
-/// * `true` - Field has child attribute
-/// * `false` - Field does not have child attribute
-pub(crate) fn is_child_field(field: &Field) -> bool {
-    field.attrs.iter().any(|attr| {
+/// * `Ok(Some(ChildField))` - Field has child attribute
+/// * `Ok(None)` - Field does not have child attribute
+/// * `Err(syn::Error)` - Invalid child attribute format
+pub(crate) fn parse_child_field(field: &Field) -> Result<Option<ChildField>, syn::Error> {
+    let Some(field_name) = &field.ident else {
+        return Ok(None);
+    };
+
+    for attr in &field.attrs {
         let path_str = attr.into_token_stream().to_string().replace(" ", "");
-        path_str.contains("distbench::child")
-    })
+        let is_child = path_str.contains("distbench::child");
+
+        if is_child {
+            // Validate that the attribute is just #[distbench::child] with no parameters
+            match &attr.meta {
+                syn::Meta::Path(_) => {
+                    return Ok(Some(ChildField {
+                        field_name: field_name.clone(),
+                        field_type: field.ty.clone(),
+                    }));
+                }
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "Invalid child attribute format. Expected `#[distbench::child]` with no parameters",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Extracts config, child, and non-config fields from a struct.
@@ -129,10 +159,10 @@ pub(crate) fn is_child_field(field: &Field) -> bool {
 ///
 /// # Errors
 ///
-/// Returns an error if any config attribute is malformed.
+/// Returns an error if any config or child attribute is malformed.
 pub(crate) fn extract_fields(
     input: &DeriveInput,
-) -> Result<(Vec<ConfigField>, Vec<Field>, Vec<Field>), syn::Error> {
+) -> Result<(Vec<ConfigField>, Vec<ChildField>, Vec<Field>), syn::Error> {
     let mut config_fields = Vec::new();
     let mut child_fields = Vec::new();
     let mut default_fields = Vec::new();
@@ -144,13 +174,14 @@ pub(crate) fn extract_fields(
                     Some(config_field) => {
                         config_fields.push(config_field);
                     }
-                    None => {
-                        if is_child_field(field) {
-                            child_fields.push(field.clone());
-                        } else {
+                    None => match parse_child_field(field)? {
+                        Some(child_field) => {
+                            child_fields.push(child_field);
+                        }
+                        None => {
                             default_fields.push(field.clone());
                         }
-                    }
+                    },
                 }
             }
         }
@@ -159,23 +190,72 @@ pub(crate) fn extract_fields(
     Ok((config_fields, child_fields, default_fields))
 }
 
+/// Helper function to extract the innermost type identifier from a type.
+///
+/// For example:
+/// - `MyAlgorithm` -> `MyAlgorithm`
+/// - `Arc<MyAlgorithm>` -> `MyAlgorithm`
+/// - `std::sync::Arc<MyAlgorithm>` -> `MyAlgorithm`
+fn extract_type_ident(ty: &Type) -> Option<&syn::Ident> {
+    match ty {
+        Type::Path(type_path) => {
+            // Get the last segment of the path
+            let last_segment = type_path.path.segments.last()?;
+
+            // Check if it has angle-bracketed generic arguments
+            if let syn::PathArguments::AngleBracketed(args) = &last_segment.arguments {
+                // Look for the first type argument
+                for arg in &args.args {
+                    if let syn::GenericArgument::Type(inner_ty) = arg {
+                        // Recursively extract from the inner type
+                        return extract_type_ident(inner_ty);
+                    }
+                }
+            }
+
+            // No generic arguments, return the identifier
+            Some(&last_segment.ident)
+        }
+        _ => None,
+    }
+}
+
 /// Generates the configuration struct for an algorithm.
 ///
 /// Creates a struct like `AlgorithmNameConfig` with optional fields
-/// for each config parameter.
+/// for each config parameter and child algorithms.
 ///
 /// # Arguments
 ///
 /// * `alg_name` - The name of the algorithm
 /// * `config_fields` - The configuration fields to include
+/// * `child_fields` - The child algorithm fields to include
 pub(crate) fn generate_config_struct(
     alg_name: &syn::Ident,
     config_fields: &[ConfigField],
+    child_fields: &[ChildField],
 ) -> TokenStream2 {
     let config_name = syn::Ident::new(
         &format!("{}Config", alg_name),
         proc_macro2::Span::call_site(),
     );
+
+    let child_field_defs: Vec<_> = child_fields
+        .iter()
+        .map(|cf| {
+            let name = &cf.field_name;
+            // Extract the algorithm type name and append "Config"
+            let config_ty = if let Some(type_ident) = extract_type_ident(&cf.field_type) {
+                let config_type_name = format!("{}Config", type_ident);
+                let config_ident = syn::Ident::new(&config_type_name, type_ident.span());
+                quote! { #config_ident }
+            } else {
+                let ty = &cf.field_type;
+                quote! { #ty }
+            };
+            quote! { pub #name: #config_ty }
+        })
+        .collect();
 
     let field_defs: Vec<_> = config_fields
         .iter()
@@ -189,6 +269,7 @@ pub(crate) fn generate_config_struct(
     quote! {
         #[derive(::serde::Serialize, ::serde::Deserialize)]
         pub struct #config_name {
+            #(#child_field_defs,)*
             #(#field_defs),*
         }
     }
