@@ -246,12 +246,10 @@ pub(crate) fn generate_config_struct(
             let name = &cf.field_name;
             // Extract the algorithm type name and append "Config"
             let config_ty = if let Some(type_ident) = extract_type_ident(&cf.field_type) {
-                let config_type_name = format!("{}Config", type_ident);
-                let config_ident = syn::Ident::new(&config_type_name, type_ident.span());
-                quote! { #config_ident }
+                quote! { <#type_ident as ::distbench::Configurable>::Config }
             } else {
                 let ty = &cf.field_type;
-                quote! { #ty }
+                quote! { <#ty as ::distbench::Configurable>::Config }
             };
             quote! { pub #name: Option<#config_ty> }
         })

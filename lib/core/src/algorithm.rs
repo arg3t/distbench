@@ -73,6 +73,12 @@ pub trait AlgorithmHandler: Send + Sync + 'static {
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
+/// Trait for algorithms that can be configured.
+pub trait Configurable {
+    /// The configuration type for this algorithm.
+    type Config;
+}
+
 /// Trait for algorithms to handle messages delivered from
 /// other algorithms.
 #[async_trait]
@@ -122,7 +128,7 @@ pub trait DeliverableAlgorithm: Send + Sync + 'static {
 /// }
 /// ```
 #[async_trait]
-pub trait Algorithm: Send + Sync + SelfTerminating + Named {
+pub trait Algorithm: Send + Sync + SelfTerminating + Named + Configurable {
     /// Called when the algorithm starts running.
     ///
     /// This is invoked after all nodes in the community have synchronized

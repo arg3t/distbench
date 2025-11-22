@@ -149,6 +149,7 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
     let self_terminating_impl = generate_self_terminating_impl(alg_name);
     let algorithm_handler_impl = generate_algorithm_handler_impl(alg_name, &child_fields);
     let named_impl = generate_named_impl(alg_name);
+    let configurable_impl = generate_configurable_impl(alg_name, &config_name);
 
     let expanded = quote! {
         #input
@@ -166,6 +167,8 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
         #self_terminating_impl
 
         #algorithm_handler_impl
+
+        #configurable_impl
     };
 
     TokenStream::from(expanded)
@@ -495,6 +498,15 @@ fn generate_algorithm_handler_impl(
                 ::log::trace!("AlgorithmHandler::handle - Handling message locally");
                 self.handle_msg(src, msg_type_id, msg_bytes).await
             }
+        }
+    }
+}
+
+/// Generates the Configurable trait implementation.
+fn generate_configurable_impl(alg_name: &syn::Ident, config_name: &syn::Ident) -> TokenStream2 {
+    quote! {
+        impl ::distbench::Configurable for #alg_name {
+            type Config = #config_name;
         }
     }
 }
