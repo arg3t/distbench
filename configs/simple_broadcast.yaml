@@ -1,26 +1,27 @@
+# Shared template for dummy config (upper + lower layer)
+# Note: The template key starts with _ to indicate it's not a node
+_template: &dummy_template
+  dummy_config: "shared_custom_value"
+  broadcast:
+    dummy_config: "shared_lower_layer"
+
 node1:
+  <<: *dummy_template
   neighbours:
     - node2
     - node3
   start_node: true
-  dummy_config: "node1_custom_value"
-  broadcast:
-    dummy_config: "node1_lower_layer"
 
 node2:
+  <<: *dummy_template
   neighbours:
     - node1
     - node3
   start_node: false
-  dummy_config: "node2_custom_value"
-  broadcast:
-    dummy_config: "node2_lower_layer"
 
 node3:
+  <<: *dummy_template
   neighbours:
     - node1
     - node2
   start_node: false
-  dummy_config: "node3_custom_value"
-  broadcast:
-    dummy_config: "node3_lower_layer"

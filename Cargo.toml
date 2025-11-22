@@ -32,6 +32,7 @@ rkyv = { version = "0.7", features = ["validation"] }
 common_macros = "0.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 blake3 = "1.8.2"
+yaml-merge-keys = { version = "0.8.2", features = ["serde_yaml"] }
 
 [build-dependencies]
 syn = { version = "2.0", features = ["full", "parsing"] }

@@ -190,9 +190,7 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
 
             async fn deliver(&self, src: ::distbench::community::PeerId, msg_bytes: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(parent) = self.__parent.get() {
-                    println!("DeliverableAlgorithm::deliver - Parent found");
                     if let Some(parent_arc) = parent.upgrade() {
-                        println!("DeliverableAlgorithm::deliver - Parent upgrade successful");
                         return parent_arc.deliver(src, msg_bytes).await;
                     }
                 }

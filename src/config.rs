@@ -58,6 +58,20 @@ pub fn load_config(path: &Path) -> Result<ConfigFile, String> {
     let config_file = std::fs::File::open(path)
         .map_err(|e| format!("Failed to open config file '{}': {}", path.display(), e))?;
 
-    serde_yaml::from_reader(config_file)
-        .map_err(|e| format!("Failed to parse config YAML '{}': {}", path.display(), e))
+    // First, parse as raw YAML to expand merge keys
+    let yaml_value: serde_yaml::Value = serde_yaml::from_reader(config_file)
+        .map_err(|e| format!("Failed to parse config YAML '{}': {}", path.display(), e))?;
+
+    // Expand merge keys
+    let expanded = yaml_merge_keys::merge_keys_serde(yaml_value)
+        .map_err(|e| format!("Failed to expand YAML merge keys in '{}': {}", path.display(), e))?;
+
+    // Deserialize into the typed structure
+    let mut config: ConfigFile = serde_yaml::from_value(expanded)
+        .map_err(|e| format!("Failed to deserialize config '{}': {}", path.display(), e))?;
+
+    // Filter out template keys (keys starting with _)
+    config.retain(|key, _| !key.starts_with('_'));
+
+    Ok(config)
 }
