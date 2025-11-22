@@ -223,12 +223,17 @@ fn generate_deliverable_impl(
             async fn deliver(
                 &self,
                 src: ::distbench::community::PeerId,
-                msg_type_id: &String,
                 msg_bytes: &[u8],
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 use ::distbench::Format;
                 use ::distbench::signing::Verifiable;
+
+                let msg: ::distbench::messages::AlgorithmMessage = self.algorithm.__formatter.deserialize(msg_bytes)?;
+                let msg_type_id = msg.type_id;
+                let msg_bytes = msg.bytes;
+
                 ::log::trace!("DeliverableAlgorithm::deliver - Received message of type '{}' from {:?}", msg_type_id, src);
+
 
                 // Then dispatch to the appropriate handler
                 #(#handle_arms)*

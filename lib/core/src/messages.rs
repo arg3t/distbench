@@ -3,11 +3,9 @@
 //! This module defines the message types used for communication between nodes
 //! in the distributed system.
 
-use std::{fmt::Display, sync::Arc};
-
+use crate::algorithm::AlgoPath;
 use rkyv::{Archive, Deserialize, Serialize};
-
-use crate::{algorithm::AlgoPath, FormatError, Formatter};
+use std::fmt::Display;
 
 /// Messages exchanged between nodes for coordination and algorithm execution.
 ///

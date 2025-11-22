@@ -1,10 +1,8 @@
-use std::{collections::HashMap, fmt::Display, sync::Arc, time::Duration};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use async_trait::async_trait;
 use common_macros::hash_map;
-use distbench::{
-    self, messages::AlgorithmMessage, Algorithm, FormatError, PeerId, SelfTerminating,
-};
+use distbench::{self, Algorithm, FormatError, PeerId};
 use log::info;
 use tokio::sync::Mutex;
 
@@ -14,7 +12,7 @@ use tokio::sync::Mutex;
 
 #[distbench::message]
 struct SimpleBroadcastMessage {
-    payload: AlgorithmMessage,
+    payload: Vec<u8>,
 }
 
 #[distbench::state]
@@ -25,9 +23,11 @@ pub struct SimpleBroadcast {
     messages_broadcasted: Mutex<u64>,
 }
 
+/// Interface provided to upper layers to broadcast messages.
+#[distbench::interface]
 impl SimpleBroadcast {
     /// Broadcast a message to all peers and deliver to parent
-    pub async fn broadcast(&self, msg: AlgorithmMessage) -> Result<(), FormatError> {
+    pub async fn broadcast(&self, msg: Vec<u8>) -> Result<(), FormatError> {
         info!(
             "SimpleBroadcast: Broadcasting message to {} peers",
             self.peers().count()
@@ -38,12 +38,10 @@ impl SimpleBroadcast {
             payload: msg.clone(),
         };
 
-        let mut count = 0;
         for (peer_id, peer) in self.peers() {
             match peer.simple_broadcast_message(&broadcast_msg).await {
                 Ok(_) => {
                     info!("SimpleBroadcast: Sent to peer {}", peer_id);
-                    count += 1;
                 }
                 Err(e) => {
                     info!("SimpleBroadcast: Error sending to peer {}: {}", peer_id, e);
@@ -89,7 +87,7 @@ impl SimpleBroadcast {
         info!(
             "SimpleBroadcast: Received message from {} with {} bytes",
             src,
-            msg.payload.bytes.len()
+            msg.payload.len()
         );
 
         // Extract the inner AlgorithmMessage and deliver to parent layer
@@ -143,14 +141,12 @@ impl Algorithm for SimpleBroadcastUpper {
 
             // Broadcast BroadcastSend messages
             for (i, message) in self.messages.iter().enumerate() {
-                let send_msg = self
-                    .package(&BroadcastSend {
-                        content: message.as_bytes().to_vec(),
-                        sequence: i as u32,
-                    })
-                    .unwrap();
+                let send_msg = BroadcastSend {
+                    content: message.as_bytes().to_vec(),
+                    sequence: i as u32,
+                };
 
-                if let Err(e) = self.broadcast.broadcast(send_msg).await {
+                if let Err(e) = self.broadcast.broadcast(&send_msg).await {
                     info!("SimpleBroadcastUpper: Error broadcasting send: {}", e);
                 }
             }
@@ -158,14 +154,12 @@ impl Algorithm for SimpleBroadcastUpper {
             info!("SimpleBroadcastUpper: Initiating broadcast through lower layer, echo");
 
             // Also broadcast a BroadcastEcho message
-            let echo_msg = self
-                .package(&BroadcastEcho {
-                    content: b"Echo from upper layer".to_vec(),
-                    original_sender: self.id().to_string(),
-                })
-                .unwrap();
+            let echo_msg = BroadcastEcho {
+                content: b"Echo from upper layer".to_vec(),
+                original_sender: self.id().to_string(),
+            };
 
-            if let Err(e) = self.broadcast.broadcast(echo_msg).await {
+            if let Err(e) = self.broadcast.broadcast(&echo_msg).await {
                 info!("SimpleBroadcastUpper: Error broadcasting echo: {}", e);
             }
         }

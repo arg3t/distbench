@@ -249,10 +249,11 @@ Algorithms handle incoming messages through two mechanisms:
      - Uses `path` parameter to route to child algorithms
 
 2. **Deliverable Algorithm Interface**:
-   - `deliver(src, msg)`: Receive messages from child algorithms
+   - `deliver(src, bytes)`: Receive messages from child algorithms
      - Used for parent-child communication in layered architectures
-     - Receives `AlgorithmMessage` directly from child
-     - Framework automatically deserializes and routes to appropriate handler
+     - Receives serialized bytes from child
+     - Framework extracts message type and deserializes to parent's message type
+     - Framework routes to appropriate handler based on message type
 
 #### Algorithm State
 
@@ -266,8 +267,7 @@ Each algorithm has:
   - `id()`: Get this node's unique identifier
   - `N()`: Get total number of nodes in the system
   - `sign(message)`: Create cryptographically signed message
-  - `package(message)`: Package message as AlgorithmMessage for delivery
-  - `deliver(src, msg)`: Send AlgorithmMessage to parent algorithm (if exists)
+  - `deliver(src, bytes)`: Send serialized bytes to parent algorithm (if exists)
 - **Termination Signal**: Mechanism to signal completion
 
 #### Algorithm Layering
@@ -284,12 +284,14 @@ The framework supports hierarchical algorithm composition:
 **Parent-Child Communication**:
 
 - Parents define message types for communication with children
-- Parents package messages using `self.package()` and pass to child methods
-- Children receive messages as `AlgorithmMessage`
-- Children deliver messages to parents using `self.deliver(src, &msg)`
+- Children define interface methods using `#[distbench::interface]`
+- Parents pass message structs directly to child interface methods
+- Framework serializes messages when calling child interface methods
+- Child interface methods receive serialized bytes (`Vec<u8>`)
+- Children deliver bytes to parents using `self.deliver(src, &bytes)`
+- Framework deserializes bytes to parent's message type
 - Parents intercept child messages using `#[distbench::handlers(from = child_name)]`
-- Framework automatically handles serialization and routing
-- Parents can call public methods on child algorithms
+- Parent handlers receive strongly-typed messages
 
 **Configuration Hierarchy**:
 
@@ -360,22 +362,23 @@ Where:
 
 #### Parent-to-Child Message Passing
 
-1. Parent packages message: `let msg = self.package(&ParentMessage { ... }).unwrap()`
-2. Parent calls child method: `self.child.broadcast(msg).await`
-3. Child receives `AlgorithmMessage` in its method
-4. Child processes the message according to its logic
-5. Child can deliver message to parent if needed
+1. Parent creates message struct: `let msg = BroadcastSend { content: ..., sequence: 0 }`
+2. Parent calls child interface method: `self.child.broadcast(&msg).await`
+3. Framework serializes message struct to `Vec<u8>`
+4. Child interface method receives serialized bytes: `pub async fn broadcast(&self, msg: Vec<u8>)`
+5. Child processes the bytes according to its logic
+6. Child can deliver bytes to parent if needed
 
 #### Child-to-Parent Message Delivery
 
-1. Child algorithm calls `self.deliver(src, &algorithm_message).await`
+1. Child algorithm calls `self.deliver(src, &bytes).await` where `bytes: &[u8]`
 2. Framework checks if parent exists via weak reference
-3. Parent's `deliver()` method is invoked with the `AlgorithmMessage`
-4. Framework extracts message type ID from the `AlgorithmMessage`
+3. Parent's `deliver()` method is invoked with the serialized bytes
+4. Framework extracts message type ID from the bytes
 5. Framework routes to handler marked with `#[distbench::handlers(from = child_name)]`
-6. Framework deserializes message to parent's message type
-7. Handler receives typed message and processes it
-8. Handler optionally returns response
+6. Framework deserializes bytes to parent's message type (e.g., `BroadcastSend`)
+7. Handler receives strongly-typed message: `async fn broadcast_send(&self, src: PeerId, msg: &BroadcastSend)`
+8. Handler processes message and optionally returns response
 
 #### Parent-to-Child Method Call
 
@@ -582,12 +585,14 @@ When child algorithms are detected:
 
 **Message Delivery**:
 
-- Parents package messages using `package()` before passing to child
-- Children deliver `AlgorithmMessage` directly via `deliver(src, &msg)`
+- Parents pass message structs to child interface methods
+- Framework serializes messages when calling child interface methods
+- Child interface methods receive `Vec<u8>` (serialized bytes)
+- Children deliver bytes via `deliver(src, &bytes)`
 - Framework handles message type extraction and routing
 - Parent upgrades weak reference to call `deliver()` on parent
 - If parent reference is dropped, delivery fails silently
-- Framework automatically deserializes to parent's message type
+- Framework automatically deserializes bytes to parent's strongly-typed message handlers
 
 **Configuration Parsing**:
 

@@ -273,17 +273,19 @@ The parent algorithm can:
 
 #### Step 1: Define Parent Message Types
 
-The parent algorithm defines the message types it expects to receive from children:
+The parent algorithm defines the message types it will send through the child:
 
 ```rust
 #[distbench::message]
-struct UpperSend {
-    message: Vec<u8>,
+pub struct BroadcastSend {
+    pub content: Vec<u8>,
+    pub sequence: u32,
 }
 
 #[distbench::message]
-struct UpperEcho {
-    message: Vec<u8>,
+pub struct BroadcastEcho {
+    pub content: Vec<u8>,
+    pub original_sender: String,
 }
 ```
 
@@ -297,7 +299,11 @@ pub struct UpperLayer {
     #[distbench::config(default = false)]
     start_node: bool,
 
-    messages_from_lower: Mutex<Vec<UpperSend>>,
+    #[distbench::config(default = vec![])]
+    messages: Vec<String>,
+
+    send_received: Mutex<Vec<BroadcastSend>>,
+    echo_received: Mutex<Vec<BroadcastEcho>>,
 
     // Child algorithm
     #[distbench::child]
@@ -305,47 +311,67 @@ pub struct UpperLayer {
 }
 ```
 
-#### Step 3: Parent Sends Messages Through Child
+#### Step 3: Define Child Interface
 
-The parent packages its own messages and passes them to the child's methods:
+The child defines its public interface using `#[distbench::interface]`:
+
+```rust
+#[distbench::interface]
+impl LowerLayer {
+    /// Broadcast a message to all peers and deliver to parent
+    pub async fn broadcast(&self, msg: Vec<u8>) -> Result<(), FormatError> {
+        // Wrap in child's message type for peer-to-peer communication
+        let broadcast_msg = LowerMessage { payload: msg.clone() };
+
+        // Send to all peers
+        for (peer_id, peer) in self.peers() {
+            peer.lower_message(&broadcast_msg).await?;
+        }
+
+        // Deliver to parent layer (parent will deserialize to parent's message type)
+        self.deliver(self.id().clone(), &msg).await?;
+        Ok(())
+    }
+}
+```
+
+**Key Points:**
+
+- Use `#[distbench::interface]` for methods that parent will call
+- Interface methods receive **serialized bytes** (`Vec<u8>`)
+- Child delivers the raw bytes to parent using `self.deliver()`
+
+#### Step 4: Parent Calls Child Interface
+
+The parent passes message structs directly to child interface methods:
 
 ```rust
 #[async_trait]
 impl Algorithm for UpperLayer {
     async fn on_start(&self) {
         if self.start_node {
-            info!("UpperLayer: Initiating broadcast through lower layer");
+            // Create message struct
+            let send_msg = BroadcastSend {
+                content: b"Hello from upper layer!".to_vec(),
+                sequence: 0,
+            };
 
-            // Package parent's message type
-            let msg = self.package(&UpperSend {
-                message: b"Hello from upper layer!".to_vec(),
-            }).unwrap();
+            // Pass directly to child - framework handles serialization
+            self.broadcast.broadcast(&send_msg).await?;
 
-            // Call child's broadcast method with the packaged message
-            self.broadcast.broadcast(msg).await;
+            // Send different message type
+            let echo_msg = BroadcastEcho {
+                content: b"Echo message".to_vec(),
+                original_sender: self.id().to_string(),
+            };
+
+            self.broadcast.broadcast(&echo_msg).await?;
         }
     }
 }
 ```
 
-#### Step 4: Child Delivers Messages to Parent
-
-The child algorithm delivers messages to the parent using `self.deliver()`:
-
-```rust
-impl LowerLayer {
-    pub async fn broadcast(&self, msg: AlgorithmMessage) {
-        // ... broadcast logic ...
-
-        // Deliver to parent layer
-        if let Err(e) = self.deliver(src, &msg).await {
-            error!("Failed to deliver to parent: {}", e);
-        }
-    }
-}
-```
-
-**Important:** The child calls `self.deliver(src, &algorithm_message)` directly with the `AlgorithmMessage` received from the parent. No manual envelope creation or serialization is needed.
+**Important:** The framework automatically serializes the message struct when calling child interface methods. No manual packaging needed!
 
 #### Step 5: Parent Intercepts Child Messages
 
@@ -354,28 +380,27 @@ Use `#[distbench::handlers(from = child_name)]` to intercept messages delivered 
 ```rust
 #[distbench::handlers(from = broadcast)]
 impl UpperLayer {
-    async fn upper_send(&self, src: PeerId, msg: &UpperSend) {
+    async fn broadcast_send(&self, src: PeerId, msg: &BroadcastSend) {
         info!(
-            "UpperLayer: Received send message from {}, {} bytes",
-            src,
-            msg.message.len()
+            "Received BroadcastSend from {} | sequence: {}, {} bytes",
+            src, msg.sequence, msg.content.len()
         );
-        let mut messages = self.messages_from_lower.lock().await;
-        messages.push(msg.clone());
+        let mut send_received = self.send_received.lock().await;
+        send_received.push(msg.clone());
     }
 
-    async fn upper_echo(&self, src: PeerId, msg: &UpperEcho) {
+    async fn broadcast_echo(&self, src: PeerId, msg: &BroadcastEcho) {
         info!(
-            "UpperLayer: Received echo message from {}, {} bytes",
-            src,
-            msg.message.len()
+            "Received BroadcastEcho from {} | sender: {}, {} bytes",
+            src, msg.original_sender, msg.content.len()
         );
-        // Process echo message...
+        let mut echo_received = self.echo_received.lock().await;
+        echo_received.push(msg.clone());
     }
 }
 ```
 
-**Note:** The handler name is derived from the message type name (converted to snake_case). For example, `UpperSend` → `upper_send`.
+**Note:** The handler name is derived from the message type name (converted to snake_case). For example, `BroadcastSend` → `broadcast_send`. The framework automatically deserializes the bytes to the correct message type.
 
 ### Configuring Layered Algorithms
 
@@ -398,49 +423,33 @@ node2:
     max_retries: 3
 ```
 
-#### Using YAML Anchors for Reusability
-
-You can use YAML anchors to avoid repeating configuration:
-
-```yaml
-# Shared template (starts with _ to indicate it's not a node)
-_template: &config_template
-  messages: []
-  broadcast:
-    max_retries: 3
-
-node1:
-  <<: *config_template # Merge template
-  neighbours: [node2, node3]
-  start_node: true
-  messages: ["Hello", "World"]  # Override template value
-
-node2:
-  <<: *config_template
-  neighbours: [node1, node3]
-  start_node: false
-```
-
-**Note:** Keys starting with `_` are ignored and can be used for templates.
-
 ### Complete Example
 
 See **[Simple Broadcast](src/algorithms/simple_broadcast.rs)** for a complete working example that demonstrates:
 
-- A `SimpleBroadcast` lower layer that broadcasts messages
-- A `SimpleBroadcastUpper` parent layer with multiple message types
-- Communication between layers using `deliver()`
-- Parent packaging messages and passing to child
-- Child delivering messages back to parent
+- A `SimpleBroadcast` lower layer that broadcasts messages with `#[distbench::interface]`
+- A `SimpleBroadcastUpper` parent layer with two distinct message types (`BroadcastSend` and `BroadcastEcho`)
+- Parent passing message structs directly to child interface methods
+- Framework automatically serializing when calling child methods
+- Child receiving serialized bytes in interface methods
+- Child delivering bytes back to parent
+- Framework automatically deserializing to parent's typed handlers
 - Nested configuration with YAML anchors
 
-### Layering Best Practices
+### How the Framework Handles Serialization
 
-1. **Clear Responsibilities** - Each layer should have a well-defined purpose
-2. **Minimal Coupling** - Layers should communicate through well-defined message types
-3. **Independent Testing** - Each layer should be testable on its own
-4. **Documentation** - Document the interface between layers clearly
-5. **Type Safety** - Define parent message types that match your protocol's needs
+The framework provides seamless serialization/deserialization for layered algorithms:
+
+1. **Parent → Child**: When parent calls `self.child.method(&msg)`, the framework serializes `msg` to bytes
+2. **Child receives**: Child interface method receives `Vec<u8>` (serialized bytes)
+3. **Child → Parent**: Child calls `self.deliver(src, &bytes)` with the raw bytes
+4. **Parent receives**: Framework deserializes bytes to parent's message type and routes to typed handler
+
+This design means:
+
+- **No manual serialization** - Just define message types and call methods
+- **Type safety** - Parent handlers receive strongly-typed messages
+- **Flexibility** - Child doesn't need to know parent's message types
 
 ## Signed Messages
 
@@ -522,6 +531,27 @@ node4:
 ```
 
 This simplifies configuration for broadcast and consensus algorithms.
+
+### Using YAML Anchors for Reusability
+
+You can use YAML anchors to avoid repeating configuration:
+
+```yaml
+# Shared template (starts with _ to indicate it's not a node)
+_template: &config_template
+  messages: []
+
+node1:
+  <<: *config_template # Merge template
+  neighbours: [node2, node3]
+  start_node: true
+  messages: ["Hello", "World"] # Override template value
+
+node2:
+  <<: *config_template
+  neighbours: [node1, node3]
+  start_node: false
+```
 
 ## Example Algorithms
 

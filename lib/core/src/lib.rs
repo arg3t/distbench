@@ -47,6 +47,7 @@ pub use error::{ConfigError, PeerError};
 pub use messages::NodeMessage;
 pub use node::Node;
 pub use procs::handlers;
+pub use procs::interface;
 pub use procs::message;
 pub use procs::state;
 pub use status::NodeStatus;

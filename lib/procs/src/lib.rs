@@ -11,6 +11,7 @@
 mod config_parsing;
 mod handler_parsing;
 mod handlers_macro;
+mod interface_macro;
 mod message_macro;
 mod peer_generation;
 mod state_macro;
@@ -64,6 +65,15 @@ pub fn state(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn handlers(attr: TokenStream, item: TokenStream) -> TokenStream {
     handlers_macro::algorithm_handlers_impl(attr, item)
+}
+
+/// Attribute macro for defining algorithm interfaces.
+///
+/// This macro transforms public methods with a single `Vec<u8>` argument
+/// into typed message packaging functions.
+#[proc_macro_attribute]
+pub fn interface(attr: TokenStream, item: TokenStream) -> TokenStream {
+    interface_macro::interface_impl(attr, item)
 }
 
 /// Attribute macro for defining message types.

@@ -197,17 +197,10 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
                 self.__parent.set(parent).map_err(|_| ::distbench::ConfigError::SetParentError { child_name: self.name().to_string() })
             }
 
-            fn package<M: ::distbench::messages::Packagable>(&self, msg: &M) -> Result<::distbench::messages::AlgorithmMessage, ::distbench::FormatError> {
-                Ok(::distbench::messages::AlgorithmMessage {
-                    type_id: M::type_id().to_string(),
-                    bytes: self.__formatter.serialize(msg)?,
-                })
-            }
-
-            async fn deliver(&self, src: ::distbench::community::PeerId, msg: &::distbench::messages::AlgorithmMessage) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+            async fn deliver(&self, src: ::distbench::community::PeerId, msg: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(parent) = self.__parent.get() {
                     if let Some(parent_arc) = parent.upgrade() {
-                        return parent_arc.deliver(src, &msg.type_id, &msg.bytes).await;
+                        return parent_arc.deliver(src, &msg).await;
                     }
                 }
                 Ok(None)
