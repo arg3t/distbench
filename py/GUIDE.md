@@ -67,6 +67,7 @@ class PingPong(Algorithm):
     # Configuration fields (loaded from YAML)
     initiator: bool = config_field(required=True)
     max_rounds: int = config_field(default=5)
+    items: list = config_field(default_factory=list)
 
     def __init__(self, config: dict, peers: dict):
         """
@@ -249,6 +250,34 @@ async def send_vote(self, src: PeerId, msg: RequestVote):
     peer = self.peers[src]
     await peer.receive_vote(signed_vote)
 ```
+
+## Public Interface (@interface)
+
+You can expose public methods that take raw bytes (or other types) and automatically takes care of serialization. This is useful for defining the public API of your algorithm, especially when it's used as a child layer.
+
+Use the `@interface` decorator:
+
+```python
+from distbench.decorators import interface
+
+@distbench
+class MyAlgo(Algorithm):
+
+    @interface
+    async def broadcast(self, msg: bytes) -> None:
+        # msg here is the SERIALIZED AlgorithmMessage(type_id, payload)
+        # You typically wrap it in a transport message
+        transport_msg = TransportMsg(payload=msg)
+        for peer in self.peers.values():
+            await peer.handle_msg(transport_msg)
+```
+
+Calls to `my_algo.broadcast(some_obj)` will:
+
+1. Serialize `some_obj`
+2. Wrap it in an `AlgorithmMessage`
+3. Serialize the `AlgorithmMessage`
+4. Pass the resulting bytes to `broadcast`
 
 ## Signed Messages & Verification
 

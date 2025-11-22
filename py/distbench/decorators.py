@@ -7,15 +7,17 @@ This module provides decorators that replace Rust's procedural macros:
 - @child_algorithm: Mark a field as a child algorithm
 """
 
+import functools
 import inspect
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field
 from typing import Any, get_type_hints
 
 from distbench.algorithm import Algorithm, Peer
 from distbench.community import PeerId
 from distbench.encoding.format import Format
+from distbench.messages import AlgorithmMessage
 from distbench.signing import Keystore, recursive_verify
 
 
@@ -66,7 +68,9 @@ def message(cls: type[Any]) -> type[Any]:
     return cls
 
 
-def config_field(default: Any = None, required: bool = False) -> Any:
+def config_field(
+    default: Any = None, default_factory: Callable[[], Any] | None = None, required: bool = False
+) -> Any:
     """Mark a field as a configuration parameter.
 
     Configuration fields are loaded from the YAML config file at startup.
@@ -76,16 +80,22 @@ def config_field(default: Any = None, required: bool = False) -> Any:
         class MyAlgorithm(Algorithm):
             max_rounds: int = config_field(required=True)
             timeout: float = config_field(default=5.0)
+            items: list = config_field(default_factory=list)
 
     Args:
         default: Default value if not specified in config
+        default_factory: Factory function for default value (e.g., list, dict)
         required: Whether this field must be present in config
 
     Returns:
         A dataclass field with configuration metadata
     """
     metadata = {"config": True, "required": required}
-    if default is not None:
+    if default_factory is not None:
+        metadata["default_factory"] = default_factory
+        return field(default_factory=default_factory, metadata=metadata)
+    elif default is not None:
+        metadata["default"] = default
         return field(default=default, metadata=metadata)
     else:
         return field(metadata=metadata)
@@ -148,6 +158,86 @@ def handler(
     return wrapper(func)
 
 
+def interface(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Decorator to expose a method as a public interface.
+
+    Transforms a method taking bytes into one taking a typed message,
+    handling the serialization into an AlgorithmMessage envelope.
+
+    Matches the Rust #[distbench::interface] macro behavior.
+
+    Usage:
+        @distbench
+        class MyAlgorithm(Algorithm):
+            @interface
+            def my_public_method(self, data: bytes):
+                # logic...
+                pass
+
+    Calls to my_public_method(msg_obj) will:
+    1. Serialize msg_obj to bytes
+    2. Create AlgorithmMessage(type_id, bytes)
+    3. Serialize AlgorithmMessage to bytes
+    4. Call original my_public_method with the final bytes
+    """
+
+    # Note: We access self.format inside the wrapper, assuming the method belongs to an Algorithm
+
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def async_wrapper(self: Any, msg: Any) -> Any:
+            if not hasattr(self, "format") or self.format is None:
+                raise RuntimeError("Algorithm format not initialized")
+
+            # 1. Serialize inner message
+            inner_bytes = self.format.serialize(msg)
+
+            # 2. Create envelope
+            type_id = type(msg).__name__
+            if hasattr(msg, "type_id"):
+                type_id = msg.type_id()
+            elif hasattr(type(msg), "type_id"):
+                type_id = type(msg).type_id()
+
+            alg_msg = AlgorithmMessage(type_id=type_id, bytes=inner_bytes)
+
+            # 3. Serialize envelope
+            outer_bytes = self.format.serialize(alg_msg)
+
+            # 4. Call original
+            return await func(self, outer_bytes)
+
+        return async_wrapper
+
+    else:
+
+        @functools.wraps(func)
+        def sync_wrapper(self: Any, msg: Any) -> Any:
+            if not hasattr(self, "format") or self.format is None:
+                raise RuntimeError("Algorithm format not initialized")
+
+            # 1. Serialize inner message
+            inner_bytes = self.format.serialize(msg)
+
+            # 2. Create envelope
+            type_id = type(msg).__name__
+            if hasattr(msg, "type_id"):
+                type_id = msg.type_id()
+            elif hasattr(type(msg), "type_id"):
+                type_id = type(msg).type_id()
+
+            alg_msg = AlgorithmMessage(type_id=type_id, bytes=inner_bytes)
+
+            # 3. Serialize envelope
+            outer_bytes = self.format.serialize(alg_msg)
+
+            # 4. Call original
+            return func(self, outer_bytes)
+
+        return sync_wrapper
+
+
 def distbench(cls: type[Algorithm]) -> type[Algorithm]:
     """Decorator to set up algorithm with configuration and message handlers.
 
@@ -196,9 +286,12 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
                 setattr(self, name, config[name])
             elif not field_obj.metadata.get("required"):
                 # Use default value
-                if hasattr(field_obj, "default"):
+                if hasattr(field_obj, "default") and field_obj.default is not MISSING:
                     setattr(self, name, field_obj.default)
-                elif hasattr(field_obj, "default_factory"):
+                elif (
+                    hasattr(field_obj, "default_factory")
+                    and field_obj.default_factory is not MISSING
+                ):
                     setattr(self, name, field_obj.default_factory())
             else:
                 raise ValueError(f"Required config field '{name}' missing")
