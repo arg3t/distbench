@@ -62,6 +62,10 @@ struct CliArgs {
     /// Latency range in milliseconds (e.g. "100-200")
     #[arg(short, long, default_value = "0-0")]
     latency: String,
+
+    /// Startup delay in milliseconds (e.g. "100")
+    #[arg(short, long, default_value_t = 0)]
+    startup_delay: u64,
 }
 
 /// Execution mode for the distributed system.
@@ -126,15 +130,17 @@ async fn main() {
         }
     };
 
+    let startup_delay = args.startup_delay;
+
     match args.mode {
         Mode::Offline => {
-            run_offline_mode(&args, &config, formatter, latency).await;
+            run_offline_mode(&args, &config, formatter, latency, startup_delay).await;
         }
         Mode::Local => {
-            run_local_mode(&args, &config, formatter, latency).await;
+            run_local_mode(&args, &config, formatter, latency, startup_delay).await;
         }
         Mode::Network => {
-            run_network_mode(&args, &config, formatter, latency).await;
+            run_network_mode(&args, &config, formatter, latency, startup_delay).await;
         }
     };
 }
@@ -149,6 +155,7 @@ async fn run_offline_mode(
     config: &runner::config::ConfigFile,
     format: Arc<Formatter>,
     latency: Range<u64>,
+    startup_delay: u64,
 ) {
     let stop_signal = Arc::new(Notify::new());
     let builder = ChannelTransportBuilder::new();
@@ -168,7 +175,8 @@ async fn run_offline_mode(
             node_id,
             community,
             stop_signal.clone(),
-            format
+            format,
+            startup_delay
         );
         handles.push(serve_handle);
     }
@@ -204,6 +212,7 @@ async fn run_local_mode(
     config: &runner::config::ConfigFile,
     format: Arc<Formatter>,
     latency: Range<u64>,
+    startup_delay: u64,
 ) {
     let stop_signal = Arc::new(Notify::new());
     let mut handles = Vec::new();
@@ -238,7 +247,8 @@ async fn run_local_mode(
             node_id,
             community,
             stop_signal.clone(),
-            format
+            format,
+            startup_delay
         );
         handles.push(serve_handle);
     }
@@ -274,6 +284,7 @@ async fn run_network_mode(
     config: &runner::config::ConfigFile,
     formatter: Arc<Formatter>,
     latency: Range<u64>,
+    startup_delay: u64,
 ) {
     let stop_signal = Arc::new(Notify::new());
 
@@ -327,7 +338,8 @@ async fn run_network_mode(
         node_id,
         community,
         stop_signal.clone(),
-        formatter
+        formatter,
+        startup_delay
     );
     let handles = vec![serve_handle]; // Use the same report handler
 

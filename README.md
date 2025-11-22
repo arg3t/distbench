@@ -70,6 +70,8 @@ Options:
       --format <FORMAT>     Serialization: json or bincode [default: json]
       --timeout <SECONDS>   Timeout in seconds [default: 10]
   -v, --verbose             Increase verbosity (-v, -vv, -vvv)
+  -l, --latency <LATENCY>   Latency range in milliseconds [default: 0-0]
+  -s, --startup-delay <MS>  Startup delay in millis [default: 0]
 ```
 
 ### Configuration
@@ -89,24 +91,6 @@ node2:
 node3:
   neighbours: [node1, node2]
   is_sender: false
-```
-
-## 🏗️ Project Structure
-
-```
-distbench/
-├── src/
-│   ├── algorithms/        # Algorithm implementations
-│   ├── config.rs          # Configuration parsing
-│   └── main.rs            # CLI entry point
-├── lib/
-│   ├── core/              # Framework core
-│   │   ├── algorithm.rs   # Algorithm trait
-│   │   ├── community.rs   # Peer management
-│   │   ├── transport/     # Network abstractions
-│   │   └── signing.rs     # Cryptographic signatures
-│   └── procs/             # Procedural macros
-└── configs/               # Example configurations
 ```
 
 ## 🔧 Implementing an Algorithm

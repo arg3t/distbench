@@ -75,7 +75,8 @@ macro_rules! start_node {{
         $peer_id:expr,
         $community:expr,
         $stop_signal:expr,
-        $format:expr
+        $format:expr,
+        $startup_delay:expr
     ) => {{
         match $algo_name.as_str() {{
 "#
@@ -117,7 +118,7 @@ macro_rules! start_node {{
                 let signal = $stop_signal.clone();
 
                 async move {{
-                    ($peer_id, node.start(signal).await.expect("Failed to start node").await)
+                    ($peer_id, node.start(signal, $startup_delay).await.expect("Failed to start node").await)
                 }}.boxed()
             }}
         "#,

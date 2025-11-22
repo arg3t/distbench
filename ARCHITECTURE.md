@@ -26,11 +26,11 @@ The framework provides infrastructure for implementing and testing distributed a
 ├─────────────────────────────────┤
 │   Node Management Layer         │  Node lifecycle, coordination
 ├─────────────────────────────────┤
-│   Community Layer              │  Peer discovery, status tracking
+│   Community Layer               │  Peer discovery, status tracking
 ├─────────────────────────────────┤
-│   Connection Management        │  Connection pooling, retries
+│   Connection Management         │  Connection pooling, retries
 ├─────────────────────────────────┤
-│   Transport Layer              │  Network abstraction
+│   Transport Layer               │  Network abstraction
 └─────────────────────────────────┘
 ```
 
@@ -51,6 +51,7 @@ In addition to the system layers above, algorithms themselves can be layered hie
 ```
 
 **Key Properties**:
+
 - Parent algorithms contain child algorithms as fields
 - Children deliver messages upward to parents
 - Parents call methods downward on children
@@ -64,6 +65,7 @@ In addition to the system layers above, algorithms themselves can be layered hie
 The transport layer provides an abstraction over different communication mechanisms.
 
 #### Responsibilities
+
 - Establishing connections between nodes
 - Sending and receiving raw bytes
 - Serving incoming connections
@@ -72,21 +74,25 @@ The transport layer provides an abstraction over different communication mechani
 #### Key Abstractions
 
 **Address**: Identifies a node's network location. Must be:
+
 - Hashable and comparable (for use in maps/sets)
 - Cloneable
 - Thread-safe
 - Convertible to string for display
 
 **Connection**: Represents an active connection to another node. Provides:
+
 - `send(bytes)`: Send message and wait for response (request-response pattern)
 - `cast(bytes)`: Send message without waiting for response (fire-and-forget)
 - `close()`: Terminate the connection
 
 **Transport**: Manages the overall networking. Provides:
+
 - `connect(address)`: Establish a connection to a peer
 - `serve(server, stop_signal)`: Start accepting incoming connections
 
 #### Implementation Notes
+
 - Connections should be multiplexable (multiple concurrent messages)
 - Transport implementations should handle reconnection logic
 - Both synchronous (request-response) and asynchronous (cast) messaging must be supported
@@ -96,18 +102,22 @@ The transport layer provides an abstraction over different communication mechani
 Sits above the transport layer to manage connections efficiently.
 
 #### Responsibilities
+
 - Lazy connection establishment
 - Connection pooling and reuse
 - Automatic reconnection on failures
 - Thread-safe access to connections
 
 #### Connection Manager Interface
+
 - `new(transport, address)`: Create a manager for a specific peer
 - `send(bytes)`: Send and wait for response (establishes connection if needed)
 - `cast(bytes)`: Send without response (establishes connection if needed)
 
 #### Design Pattern
+
 Connection managers act as per-peer proxies that:
+
 1. Lazily establish connections on first use
 2. Cache connections for reuse
 3. Handle connection failures transparently
@@ -118,6 +128,7 @@ Connection managers act as per-peer proxies that:
 Manages the set of peers a node can communicate with.
 
 #### Responsibilities
+
 - Maintaining the set of neighbor nodes
 - Mapping addresses to peer identities
 - Tracking peer status (not started, starting, running, stopping, terminated)
@@ -125,6 +136,7 @@ Manages the set of peers a node can communicate with.
 - Storing peer metadata (public keys, etc.)
 
 #### Data Structures
+
 - **Neighbors Set**: The subset of peers this node directly communicates with
 - **Connections Map**: Maps peer IDs to their connection managers
 - **Address Map**: Maps network addresses to peer IDs (for identifying incoming messages)
@@ -132,6 +144,7 @@ Manages the set of peers a node can communicate with.
 - **Keys Map**: Stores cryptographic keys for peers (optional)
 
 #### Key Operations
+
 - `neighbours()`: Get connection managers for all neighbor peers
 - `connection(peer_id)`: Get connection manager for a specific peer
 - `id_of(address)`: Look up peer ID from network address
@@ -143,6 +156,7 @@ Manages the set of peers a node can communicate with.
 Coordinates the lifecycle of a single node in the system.
 
 #### Node States
+
 1. **NotStarted**: Initial state
 2. **KeySharing**: Exchanging cryptographic public keys with peers
 3. **Starting**: Node is synchronizing startup with peers
@@ -167,6 +181,7 @@ Terminated
 ```
 
 #### Responsibilities
+
 - Managing node lifecycle state
 - Synchronizing startup with other nodes
 - Coordinating shutdown with other nodes
@@ -177,6 +192,7 @@ Terminated
 #### Synchronization Protocol
 
 **Key Exchange Phase** (KeySharing state):
+
 1. Node generates a unique Ed25519 key pair
 2. Node announces its public key to all peers
 3. Node waits for public keys from all peers
@@ -184,6 +200,7 @@ Terminated
 5. Transition to Starting state when all keys received
 
 **Startup Synchronization**:
+
 1. Node enters Starting state
 2. Node broadcasts "Started" message to all peers
 3. Node waits for "Started" from all peers
@@ -191,6 +208,7 @@ Terminated
 5. Call algorithm's `on_start()` hook
 
 **Shutdown Synchronization**:
+
 1. Algorithm calls `terminate()`
 2. Node enters Stopping state
 3. Node broadcasts "Finished" message to all peers
@@ -199,7 +217,9 @@ Terminated
 6. Call algorithm's `on_exit()` hook
 
 #### Message Handling
+
 Nodes handle two types of messages:
+
 1. **Node Messages**: Lifecycle coordination (Started, Finished)
 2. **Algorithm Messages**: Algorithm-specific logic
 
@@ -210,6 +230,7 @@ Provides the programming model for implementing distributed algorithms.
 #### Algorithm Trait
 
 Algorithms must implement:
+
 - `on_start()`: Called when all nodes are ready (after synchronization)
 - `on_exit()`: Called during shutdown (for cleanup)
 - `report()`: Optional method to return algorithm-specific metrics/results
@@ -221,6 +242,7 @@ Algorithms must implement:
 Algorithms handle incoming messages through two mechanisms:
 
 1. **Direct Message Handling**:
+
    - `handle(src, msg_type_id, msg_bytes, path)`: Process incoming message
      - Returns `Some(response_bytes)` for request-response
      - Returns `None` for fire-and-forget messages
@@ -235,6 +257,7 @@ Algorithms handle incoming messages through two mechanisms:
 #### Algorithm State
 
 Each algorithm has:
+
 - **Configuration Fields**: Loaded from config file at startup
 - **Internal State**: Algorithm-specific data
 - **Child Algorithms**: Optional child algorithms for layered architectures
@@ -251,18 +274,21 @@ Each algorithm has:
 The framework supports hierarchical algorithm composition:
 
 **Child Algorithm Fields**:
+
 - Marked with `#[distbench::child]` attribute
 - Must be wrapped in `Arc<ChildAlgorithm>`
 - Automatically initialized and configured during algorithm creation
 - Have their own lifecycle tied to parent algorithm
 
 **Parent-Child Communication**:
+
 - Children can deliver messages to parents using `self.deliver()`
 - Parents intercept child messages using `#[distbench::handlers(from = child_name)]`
 - Message format: `(message_type_id: String, serialized_payload: Vec<u8>)`
 - Parents can call public methods on child algorithms
 
 **Configuration Hierarchy**:
+
 - Parent configuration can include nested child configuration
 - Each child has its own configuration namespace
 - YAML anchors supported for reusable configuration templates
@@ -272,6 +298,7 @@ The framework supports hierarchical algorithm composition:
 Provides abstraction over serialization formats.
 
 #### Format Trait
+
 - `serialize(value)`: Convert object to bytes
 - `deserialize(bytes)`: Convert bytes to object
 - `name()`: Format identifier (for logging)
@@ -279,20 +306,25 @@ Provides abstraction over serialization formats.
 #### Two-Level Serialization
 
 **Outer Layer** (Node Messages):
+
 - Uses a fixed binary format (rkyv)
 - Handles node lifecycle messages
 - Wraps algorithm messages
 
 **Inner Layer** (Algorithm Messages):
+
 - Pluggable format (JSON, bincode, etc.)
 - User-configurable
 - Algorithm-specific messages
 
 #### Message Envelope Format
+
 ```
 NodeMessage::Algorithm(type_id, payload_bytes)
 ```
+
 Where:
+
 - `type_id`: String identifying the message type (for deserialization)
 - `payload_bytes`: Serialized algorithm message (using chosen format)
 
@@ -367,6 +399,7 @@ node_id:
 ```
 
 **Special Behavior**:
+
 - If `neighbours` is an empty list, the node automatically connects to all other nodes (fully connected topology)
 - This simplifies configuration for algorithms that require full connectivity (e.g., broadcast, consensus)
 - Keys starting with `_` (underscore) are ignored and can be used for YAML templates
@@ -383,6 +416,7 @@ node_id:
 ### Algorithm Configuration
 
 Algorithms define configuration via attributes:
+
 - Required fields: Must be present in config file
 - Optional fields: Use default value if not specified
 
@@ -400,6 +434,7 @@ node1:
 ```
 
 The framework automatically:
+
 1. Extracts nested configuration for each child
 2. Passes child config to child algorithm factory
 3. Builds child algorithm with its configuration
@@ -417,7 +452,7 @@ _template: &shared_config
     child_field: "child_value"
 
 node1:
-  <<: *shared_config  # Merge template
+  <<: *shared_config # Merge template
   neighbours: [node2]
 
 node2:
@@ -426,6 +461,7 @@ node2:
 ```
 
 **Benefits**:
+
 - Reduces duplication in configuration files
 - Makes it easy to change shared settings
 - Particularly useful for layered algorithms with complex nested configs
@@ -463,6 +499,7 @@ The framework uses build-time code generation and procedural macros:
 ### Generated Components
 
 For each algorithm, the `#[distbench::state]` macro generates:
+
 - Configuration struct (including nested child configurations)
 - Algorithm factory implementation
 - Child algorithm initialization and linking code
@@ -470,6 +507,7 @@ For each algorithm, the `#[distbench::state]` macro generates:
 - Weak reference management for parent-child relationships
 
 For each handler implementation, the `#[distbench::handlers]` macro generates:
+
 - Message handler dispatch logic
 - Peer proxy methods for each handler
 - For `#[distbench::handlers(from = child)]`: DeliverableAlgorithm implementation
@@ -477,6 +515,7 @@ For each handler implementation, the `#[distbench::handlers]` macro generates:
 ### Layering-Specific Generation
 
 When child algorithms are detected:
+
 1. **Child Field Initialization**: Generate code to build each child with its config
 2. **Parent Reference Setup**: Generate code to set weak parent references
 3. **DeliverableAlgorithm Wrapper**: Generate struct implementing DeliverableAlgorithm
@@ -523,24 +562,28 @@ When child algorithms are detected:
 #### Algorithm Layering Implementation
 
 **Parent-Child Lifecycle**:
+
 - Child algorithms are built before parent algorithm initialization completes
 - Parent holds strong references (Arc) to children
 - Children hold weak references to parent (to avoid circular references)
 - Child deliverable wrappers are stored in parent to prevent premature cleanup
 
 **Message Delivery**:
+
 - Children serialize messages before calling `deliver()`
 - Envelope format: `(message_type_id: String, payload: Vec<u8>)`
 - Parent upgrades weak reference to call `deliver()` on parent
 - If parent reference is dropped, delivery fails silently
 
 **Configuration Parsing**:
+
 - Must support nested YAML structures
 - Must filter out template keys (starting with `_`)
 - Must support YAML anchors and merge keys (`<<: *anchor`)
 - Child configurations are extracted from parent config by field name
 
 **Memory Management**:
+
 - Use weak references from child to parent to avoid cycles
 - Parent stores Arc to DeliverableAlgorithm implementation for each child
 - This keeps the deliverable alive as long as parent exists
@@ -551,6 +594,7 @@ When child algorithms are detected:
 ### Custom Transports
 
 New transport implementations can:
+
 - Use different protocols (UDP, QUIC, etc.)
 - Implement custom connection pooling strategies
 - Add encryption, compression, etc.
@@ -558,6 +602,7 @@ New transport implementations can:
 ### Custom Serialization Formats
 
 New formats can:
+
 - Trade speed for size (or vice versa)
 - Support schema evolution
 - Add type safety or validation
@@ -565,6 +610,7 @@ New formats can:
 ### Custom Connection Managers
 
 Can implement:
+
 - Connection pooling strategies
 - Load balancing across multiple connections
 - Circuit breakers and backoff strategies
@@ -573,16 +619,19 @@ Can implement:
 ## Testing Strategy
 
 ### Unit Testing
+
 - Test individual components in isolation
 - Mock transport layer for algorithm testing
 - Test configuration parsing
 
 ### Integration Testing
+
 - Test complete node lifecycle
 - Test multi-node coordination
 - Test failure scenarios
 
 ### Offline Mode Testing
+
 - Run complete distributed algorithm in single process
 - Deterministic testing with controlled message ordering
 - Fast iteration without network overhead
@@ -590,16 +639,19 @@ Can implement:
 ## Performance Considerations
 
 ### Memory
+
 - Connection managers cache connections
 - Status maps grow with number of peers
 - Message buffers are temporary
 
 ### CPU
+
 - Serialization/deserialization overhead
 - Message routing and dispatch
 - State synchronization
 
 ### Network
+
 - Startup synchronization requires all-to-all communication
 - Shutdown synchronization requires all-to-all communication
 - Algorithm messages depend on algorithm design
@@ -611,12 +663,14 @@ Can implement:
 The framework provides built-in support for cryptographically signed messages:
 
 #### Key Management
+
 - Each node generates a unique key pair on startup
 - Public keys are automatically exchanged during the startup synchronization phase
 - Keys are stored in a KeyStore within the Community
 - Uses Ed25519 signatures via the `ed25519-dalek` library
 
 #### Signed Messages
+
 - Messages can be wrapped in `Signed<M>` type
 - Signed messages include:
   - The original message content
@@ -627,6 +681,7 @@ The framework provides built-in support for cryptographically signed messages:
 - Useful for Byzantine fault-tolerant algorithms
 
 #### Trust Model
+
 - Nodes exchange public keys during startup
 - Each node trusts the authenticity of exchanged keys
 - Signed messages prove message origin and integrity
@@ -634,6 +689,7 @@ The framework provides built-in support for cryptographically signed messages:
 - No built-in message encryption (signatures only provide authentication, not confidentiality)
 
 ### Attack Vectors
+
 - Malicious messages (mitigated by type-safe deserialization and optional signing)
 - Resource exhaustion (no rate limiting built-in)
 - Network partitions (no automatic handling)
@@ -642,6 +698,7 @@ The framework provides built-in support for cryptographically signed messages:
 ## Future Extensions
 
 Possible enhancements:
+
 - Failure detection and recovery
 - Dynamic topology changes
 - Message encryption

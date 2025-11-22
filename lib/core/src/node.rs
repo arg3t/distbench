@@ -451,6 +451,7 @@ where
     pub async fn start(
         &self,
         stop_signal: Arc<Notify>,
+        startup_delay: u64,
     ) -> transport::Result<tokio::task::JoinHandle<transport::Result<String>>> {
         trace!("Node::start - Starting node {}", self.id.to_string());
         let transport = self.community.transport();
@@ -468,6 +469,9 @@ where
             trace!("Node::start - Spawning serve task");
             let algo = serve_self.algo.clone();
             let metrics = serve_self.metrics.clone();
+            if startup_delay > 0 {
+                tokio::time::sleep(Duration::from_millis(startup_delay)).await;
+            }
             let result = transport.serve(serve_self, stop_signal).await;
             match result {
                 Ok(_) => {
