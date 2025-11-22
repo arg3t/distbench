@@ -1,17 +1,18 @@
 use clap::{Parser, ValueEnum};
 use distbench::community::{Community, PeerId};
 use distbench::transport::channel::{ChannelTransport, ChannelTransportBuilder};
+use distbench::transport::delayed::DelayedTransport;
 use distbench::transport::tcp::{TcpAddress, TcpTransport};
 use distbench::transport::{ConnectionManager, ThinConnectionManager};
 use distbench::{BincodeFormat, Formatter, JsonFormat};
 use log::{error, info};
 use runner::config::{load_config, ConfigFile};
 use runner::logging::init_logger;
-use runner::transport_setup::setup_offline_transport;
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -57,6 +58,10 @@ struct CliArgs {
     /// Base port for local instances
     #[arg(short, long, default_value_t = 10000)]
     port_base: u16,
+
+    /// Latency range in milliseconds (e.g. "100-200")
+    #[arg(short, long, default_value = "0-0")]
+    latency: String,
 }
 
 /// Execution mode for the distributed system.
@@ -108,15 +113,28 @@ async fn main() {
         FormatType::Bincode => Arc::new(Formatter::Bincode(BincodeFormat {})),
     };
 
+    let latency: Range<u64> = match args
+        .latency
+        .split('-')
+        .map(|s| s.parse::<u64>())
+        .collect::<Result<Vec<u64>, _>>()
+    {
+        Ok(values) => values[0]..values[1],
+        Err(e) => {
+            error!("Failed to parse latency: {}", e);
+            process::exit(1);
+        }
+    };
+
     match args.mode {
         Mode::Offline => {
-            run_offline_mode(&args, &config, formatter).await;
+            run_offline_mode(&args, &config, formatter, latency).await;
         }
         Mode::Local => {
-            run_local_mode(&args, &config, formatter).await;
+            run_local_mode(&args, &config, formatter, latency).await;
         }
         Mode::Network => {
-            run_network_mode(&args, &config, formatter).await;
+            run_network_mode(&args, &config, formatter, latency).await;
         }
     };
 }
@@ -130,6 +148,7 @@ async fn run_offline_mode(
     args: &CliArgs,
     config: &runner::config::ConfigFile,
     format: Arc<Formatter>,
+    latency: Range<u64>,
 ) {
     let stop_signal = Arc::new(Notify::new());
     let builder = ChannelTransportBuilder::new();
@@ -139,12 +158,9 @@ async fn run_offline_mode(
         let node_id = PeerId::new(node_id_str.clone());
         let (neighbours_str, _) = get_neighbours(config, node_id_str, &node_id);
 
-        let community = setup_offline_transport::<ThinConnectionManager<ChannelTransport>>(
-            config,
-            &builder,
-            &node_id,
-            &neighbours_str,
-        );
+        let community = setup_offline_transport::<
+            ThinConnectionManager<DelayedTransport<ChannelTransport>>,
+        >(config, &builder, &node_id, &neighbours_str, latency.clone());
 
         let serve_handle = start_node!(
             args.algorithm,
@@ -187,6 +203,7 @@ async fn run_local_mode(
     args: &CliArgs,
     config: &runner::config::ConfigFile,
     format: Arc<Formatter>,
+    latency: Range<u64>,
 ) {
     let stop_signal = Arc::new(Notify::new());
     let mut handles = Vec::new();
@@ -206,12 +223,13 @@ async fn run_local_mode(
         let node_id = PeerId::new(node_id_str.clone());
         let (_, neighbour_ids) = get_neighbours(config, node_id_str, &node_id);
 
-        let community = setup_tcp_transport::<ThinConnectionManager<TcpTransport>>(
+        let community = setup_tcp_transport::<ThinConnectionManager<_>>(
             &all_peer_ids,
             all_peer_sockets.clone(),
             &peer_id_to_numeric_addr,
             &node_id,
             &neighbour_ids,
+            latency.clone(),
         );
 
         let serve_handle = start_node!(
@@ -255,6 +273,7 @@ async fn run_network_mode(
     args: &CliArgs,
     config: &runner::config::ConfigFile,
     formatter: Arc<Formatter>,
+    latency: Range<u64>,
 ) {
     let stop_signal = Arc::new(Notify::new());
 
@@ -286,12 +305,13 @@ async fn run_network_mode(
     // --- 3. Spawn the single node ---
     let (_, neighbour_ids) = get_neighbours(config, node_id_str, &node_id);
 
-    let community = setup_tcp_transport::<ThinConnectionManager<TcpTransport>>(
+    let community = setup_tcp_transport::<ThinConnectionManager<DelayedTransport<TcpTransport>>>(
         &all_peer_ids,
         all_peer_sockets.clone(),
         &peer_id_to_numeric_addr,
         &node_id,
         &neighbour_ids,
+        latency,
     );
 
     let local_numeric_id = peer_id_to_numeric_addr.get(&node_id).unwrap();
@@ -332,6 +352,82 @@ async fn run_network_mode(
 }
 
 // --- Helper Functions ---
+
+/// Sets up an offline (channel-based) transport for a node.
+///
+/// Creates a community with channel-based connections to all peers defined
+/// in the configuration. Channel transport uses in-memory channels instead
+/// of network sockets, making it ideal for testing and simulation.
+///
+/// # Arguments
+///
+/// * `config` - The complete configuration file
+/// * `builder` - The channel transport builder (shared across all nodes)
+/// * `node_id` - The ID of this node
+/// * `neighbours` - List of neighbor IDs for this node
+/// * `latency_ms` - Optional latency in milliseconds
+///
+/// # Returns
+///
+/// A community configured with channel transport to all peers.
+///
+/// # Examples
+///
+/// ```ignore
+/// use distbench::transport::channel::ChannelTransportBuilder;
+/// use distbench::community::PeerId;
+/// use distbench::transport_setup::setup_offline_transport;
+///
+/// let builder = ChannelTransportBuilder::new();
+/// let node_id = PeerId::new("node1".to_string());
+/// let community = setup_offline_transport(
+///     &config,
+///     &builder,
+///     &node_id,
+///     &vec!["node2".to_string(), "node3".to_string()],
+///     None,
+/// );
+/// ```
+pub fn setup_offline_transport<CM: ConnectionManager<DelayedTransport<ChannelTransport>>>(
+    config: &ConfigFile,
+    builder: &ChannelTransportBuilder,
+    node_id: &PeerId,
+    neighbours: &[String],
+    latency: Range<u64>,
+) -> Arc<Community<DelayedTransport<ChannelTransport>, CM>> {
+    let transport = builder.build(node_id.clone());
+    let delayed_transport = DelayedTransport::new(transport, latency);
+
+    // Create addresses for all peers (excluding self)
+    let all_node_addrs: HashMap<PeerId, PeerId> = config
+        .keys()
+        .filter_map(|id_str| {
+            let id = PeerId::new(id_str.clone());
+            if id != *node_id {
+                Some((id.clone(), id))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Convert neighbor strings to PeerIds (excluding self)
+    let neighbour_ids: HashSet<PeerId> = neighbours
+        .iter()
+        .filter_map(|id| {
+            let id = PeerId::new(id.clone());
+            if id != *node_id {
+                Some(id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let community = Community::new(neighbour_ids, all_node_addrs, delayed_transport);
+
+    Arc::new(community)
+}
 
 /// Builds all necessary mappings for TCP transport.
 ///
@@ -407,19 +503,21 @@ fn build_tcp_mappings(
 }
 
 /// Sets up a TCP (network) transport for a node.
-fn setup_tcp_transport<CM: ConnectionManager<TcpTransport> + 'static>(
+fn setup_tcp_transport<CM: ConnectionManager<DelayedTransport<TcpTransport>> + 'static>(
     all_peer_ids: &HashMap<TcpAddress, PeerId>,
     all_peer_sockets: Arc<HashMap<TcpAddress, SocketAddr>>,
     peer_id_to_numeric_addr: &HashMap<PeerId, TcpAddress>,
     node_id: &PeerId,
     neighbours: &HashSet<PeerId>,
-) -> Arc<Community<TcpTransport, CM>> {
+    latency: Range<u64>,
+) -> Arc<Community<DelayedTransport<TcpTransport>, CM>> {
     // Find the numeric ID this node should use
     let local_numeric_id = peer_id_to_numeric_addr
         .get(node_id)
         .unwrap_or_else(|| panic!("Failed to find local numeric ID for node {}", node_id));
 
     let transport = Arc::new(TcpTransport::new(*local_numeric_id, all_peer_sockets));
+    let delayed_transport = DelayedTransport::new(transport, latency);
 
     // Create map of *remote* peers (numeric ID -> PeerId)
     let remote_peer_ids: HashMap<PeerId, TcpAddress> = all_peer_ids
@@ -428,7 +526,7 @@ fn setup_tcp_transport<CM: ConnectionManager<TcpTransport> + 'static>(
         .map(|(addr, id)| (id.clone(), *addr))
         .collect();
 
-    let community = Community::new(neighbours.clone(), remote_peer_ids, transport);
+    let community = Community::new(neighbours.clone(), remote_peer_ids, delayed_transport);
 
     Arc::new(community)
 }

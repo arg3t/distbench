@@ -13,6 +13,7 @@
 use std::{fmt::Display, hash::Hash, sync::Arc};
 
 pub mod channel;
+pub mod delayed;
 pub mod error;
 pub mod tcp;
 

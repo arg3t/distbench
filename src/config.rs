@@ -63,8 +63,13 @@ pub fn load_config(path: &Path) -> Result<ConfigFile, String> {
         .map_err(|e| format!("Failed to parse config YAML '{}': {}", path.display(), e))?;
 
     // Expand merge keys
-    let expanded = yaml_merge_keys::merge_keys_serde(yaml_value)
-        .map_err(|e| format!("Failed to expand YAML merge keys in '{}': {}", path.display(), e))?;
+    let expanded = yaml_merge_keys::merge_keys_serde(yaml_value).map_err(|e| {
+        format!(
+            "Failed to expand YAML merge keys in '{}': {}",
+            path.display(),
+            e
+        )
+    })?;
 
     // Deserialize into the typed structure
     let mut config: ConfigFile = serde_yaml::from_value(expanded)

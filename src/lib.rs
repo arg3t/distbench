@@ -6,4 +6,3 @@ extern crate alloc;
 pub mod algorithms;
 pub mod config;
 pub mod logging;
-pub mod transport_setup;
