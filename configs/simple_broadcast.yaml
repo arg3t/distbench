@@ -2,6 +2,7 @@
 # Note: The template key starts with _ to indicate it's not a node
 _defaults: &defaults
   start_node: false
+  messages: ["This is a test message"]
   broadcast:
     is_sender: false
 

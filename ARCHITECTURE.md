@@ -249,10 +249,10 @@ Algorithms handle incoming messages through two mechanisms:
      - Uses `path` parameter to route to child algorithms
 
 2. **Deliverable Algorithm Interface**:
-   - `deliver(src, msg_bytes)`: Receive messages from child algorithms
+   - `deliver(src, msg)`: Receive messages from child algorithms
      - Used for parent-child communication in layered architectures
-     - Deserializes envelope format: `(message_type: String, payload: Vec<u8>)`
-     - Routes to appropriate handler based on message type
+     - Receives `AlgorithmMessage` directly from child
+     - Framework automatically deserializes and routes to appropriate handler
 
 #### Algorithm State
 
@@ -266,7 +266,8 @@ Each algorithm has:
   - `id()`: Get this node's unique identifier
   - `N()`: Get total number of nodes in the system
   - `sign(message)`: Create cryptographically signed message
-  - `deliver(src, msg_bytes)`: Send message to parent algorithm (if exists)
+  - `package(message)`: Package message as AlgorithmMessage for delivery
+  - `deliver(src, msg)`: Send AlgorithmMessage to parent algorithm (if exists)
 - **Termination Signal**: Mechanism to signal completion
 
 #### Algorithm Layering
@@ -282,9 +283,12 @@ The framework supports hierarchical algorithm composition:
 
 **Parent-Child Communication**:
 
-- Children can deliver messages to parents using `self.deliver()`
+- Parents define message types for communication with children
+- Parents package messages using `self.package()` and pass to child methods
+- Children receive messages as `AlgorithmMessage`
+- Children deliver messages to parents using `self.deliver(src, &msg)`
 - Parents intercept child messages using `#[distbench::handlers(from = child_name)]`
-- Message format: `(message_type_id: String, serialized_payload: Vec<u8>)`
+- Framework automatically handles serialization and routing
 - Parents can call public methods on child algorithms
 
 **Configuration Hierarchy**:
@@ -354,23 +358,31 @@ Where:
 
 ### Message Flow in Layered Algorithms
 
+#### Parent-to-Child Message Passing
+
+1. Parent packages message: `let msg = self.package(&ParentMessage { ... }).unwrap()`
+2. Parent calls child method: `self.child.broadcast(msg).await`
+3. Child receives `AlgorithmMessage` in its method
+4. Child processes the message according to its logic
+5. Child can deliver message to parent if needed
+
 #### Child-to-Parent Message Delivery
 
-1. Child algorithm calls `self.deliver(src, &envelope_bytes).await`
-2. Child serializes message envelope: `(message_type_id, payload_bytes)`
-3. Framework checks if parent exists via weak reference
-4. Parent's `deliver()` method is invoked
-5. Parent deserializes envelope to extract message type ID
-6. Parent routes to handler marked with `#[distbench::handlers(from = child_name)]`
-7. Handler deserializes payload and processes message
-8. Handler optionally returns response bytes
+1. Child algorithm calls `self.deliver(src, &algorithm_message).await`
+2. Framework checks if parent exists via weak reference
+3. Parent's `deliver()` method is invoked with the `AlgorithmMessage`
+4. Framework extracts message type ID from the `AlgorithmMessage`
+5. Framework routes to handler marked with `#[distbench::handlers(from = child_name)]`
+6. Framework deserializes message to parent's message type
+7. Handler receives typed message and processes it
+8. Handler optionally returns response
 
 #### Parent-to-Child Method Call
 
 1. Parent algorithm calls public method on child: `self.child.method().await`
 2. This is a direct method call (not message passing)
 3. Child method executes and returns result
-4. No serialization/deserialization involved
+4. No message passing infrastructure involved
 
 #### Message Routing with Path
 
@@ -570,10 +582,12 @@ When child algorithms are detected:
 
 **Message Delivery**:
 
-- Children serialize messages before calling `deliver()`
-- Envelope format: `(message_type_id: String, payload: Vec<u8>)`
+- Parents package messages using `package()` before passing to child
+- Children deliver `AlgorithmMessage` directly via `deliver(src, &msg)`
+- Framework handles message type extraction and routing
 - Parent upgrades weak reference to call `deliver()` on parent
 - If parent reference is dropped, delivery fails silently
+- Framework automatically deserializes to parent's message type
 
 **Configuration Parsing**:
 

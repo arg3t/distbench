@@ -1,132 +1,64 @@
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{collections::HashMap, fmt::Display, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use common_macros::hash_map;
-use distbench::{self, community::PeerId, Algorithm, SelfTerminating};
+use distbench::{
+    self, messages::AlgorithmMessage, Algorithm, FormatError, PeerId, SelfTerminating,
+};
 use log::info;
+use tokio::sync::Mutex;
+
+// ============================================================================
+// Lower Layer: SimpleBroadcast
+// ============================================================================
 
 #[distbench::message]
-pub struct BroadcastMessage {
-    pub content: Vec<u8>,
-    pub dummy_field: String,
+struct SimpleBroadcastMessage {
+    payload: AlgorithmMessage,
 }
 
 #[distbench::state]
 pub struct SimpleBroadcast {
-    #[distbench::config(default = "default_dummy".to_string())]
-    dummy_config: String,
-    messages_received: AtomicU64,
-}
+    #[distbench::config(default = 0)]
+    max_retries: u32,
 
-#[distbench::message]
-pub struct UpperMessage {
-    pub data: Vec<u8>,
-    pub dummy_field: String,
-}
-
-#[distbench::state]
-pub struct SimpleBroadcastUpper {
-    #[distbench::config(default = false)]
-    start_node: bool,
-    #[distbench::config(default = "upper_default_dummy".to_string())]
-    dummy_config: String,
-    messages_from_lower: AtomicU64,
-    #[distbench::child]
-    broadcast: Arc<SimpleBroadcast>,
-}
-
-#[async_trait]
-impl Algorithm for SimpleBroadcastUpper {
-    async fn on_start(&self) {
-        info!(
-            "SimpleBroadcastUpper starting with dummy_config: {}",
-            self.dummy_config
-        );
-
-        if self.start_node {
-            info!("SimpleBroadcastUpper: Initiating broadcast through lower layer");
-            let test_data = b"Hello from upper layer!".to_vec();
-            self.broadcast.broadcast(test_data).await;
-        }
-
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        self.terminate().await;
-    }
-
-    async fn on_exit(&self) {
-        info!("SimpleBroadcastUpper exiting");
-    }
-
-    async fn report(&self) -> Option<HashMap<impl Display, impl Display>> {
-        Some(hash_map! {
-            "messages_from_lower" => self.messages_from_lower.load(Ordering::Relaxed).to_string(),
-            "dummy_config" => self.dummy_config.clone(),
-        })
-    }
-}
-
-#[distbench::handlers]
-impl SimpleBroadcastUpper {
-    async fn upper_message(&self, src: PeerId, msg: &UpperMessage) -> Option<String> {
-        info!(
-            "SimpleBroadcastUpper: Received direct message from {} with {} bytes (dummy: {})",
-            src,
-            msg.data.len(),
-            msg.dummy_field
-        );
-        Some("Acknowledged".to_string())
-    }
-}
-
-#[distbench::handlers(from = broadcast)]
-impl SimpleBroadcastUpper {
-    async fn broadcast_message(&self, src: PeerId, msg: &BroadcastMessage) -> Option<String> {
-        info!(
-            "SimpleBroadcastUpper: Intercepted message from lower layer! Source: {}, {} bytes (dummy: {})",
-            src,
-            msg.content.len(),
-            msg.dummy_field
-        );
-        self.messages_from_lower.fetch_add(1, Ordering::Relaxed);
-
-        // Pass through to lower layer
-        Some(format!("Upper layer saw {} bytes", msg.content.len()))
-    }
+    messages_broadcasted: Mutex<u64>,
 }
 
 impl SimpleBroadcast {
-    /// Broadcast a message to all peers
-    pub async fn broadcast(&self, content: Vec<u8>) {
+    /// Broadcast a message to all peers and deliver to parent
+    pub async fn broadcast(&self, msg: AlgorithmMessage) -> Result<(), FormatError> {
         info!(
-            "SimpleBroadcast: Broadcasting message with {} bytes",
-            content.len()
+            "SimpleBroadcast: Broadcasting message to {} peers",
+            self.peers().count()
         );
-        for (peer_id, peer) in self.peers() {
-            let msg = BroadcastMessage {
-                content: content.clone(),
-                dummy_field: self.dummy_config.clone(),
-            };
 
-            match peer.broadcast_message(&msg).await {
-                Ok(Some(response)) => {
-                    info!("SimpleBroadcast: Peer {} responded: {}", peer_id, response);
-                }
-                Ok(None) => {
-                    info!("SimpleBroadcast: Peer {} did not respond", peer_id);
+        // Wrap the AlgorithmMessage in our own message type for peer-to-peer communication
+        let broadcast_msg = SimpleBroadcastMessage {
+            payload: msg.clone(),
+        };
+
+        let mut count = 0;
+        for (peer_id, peer) in self.peers() {
+            match peer.simple_broadcast_message(&broadcast_msg).await {
+                Ok(_) => {
+                    info!("SimpleBroadcast: Sent to peer {}", peer_id);
+                    count += 1;
                 }
                 Err(e) => {
                     info!("SimpleBroadcast: Error sending to peer {}: {}", peer_id, e);
                 }
             }
         }
+
+        *self.messages_broadcasted.lock().await += 1;
+
+        // Deliver to parent layer
+        if let Err(e) = self.deliver(self.id().clone(), &msg).await {
+            info!("SimpleBroadcast: Failed to deliver to parent: {}", e);
+        }
+
+        Ok(())
     }
 }
 
@@ -134,8 +66,8 @@ impl SimpleBroadcast {
 impl Algorithm for SimpleBroadcast {
     async fn on_start(&self) {
         info!(
-            "SimpleBroadcast starting with dummy_config: {}",
-            self.dummy_config
+            "SimpleBroadcast starting with max_retries: {}",
+            self.max_retries
         );
     }
 
@@ -145,31 +77,137 @@ impl Algorithm for SimpleBroadcast {
 
     async fn report(&self) -> Option<HashMap<impl Display, impl Display>> {
         Some(hash_map! {
-            "messages_received" => self.messages_received.load(Ordering::Relaxed).to_string(),
-            "dummy_config" => self.dummy_config.clone(),
+            "messages_broadcasted" => self.messages_broadcasted.lock().await.to_string(),
+            "max_retries" => self.max_retries.to_string(),
         })
     }
 }
 
 #[distbench::handlers]
 impl SimpleBroadcast {
-    async fn broadcast_message(&self, src: PeerId, msg: &BroadcastMessage) -> Option<String> {
+    async fn simple_broadcast_message(&self, src: PeerId, msg: &SimpleBroadcastMessage) {
         info!(
-            "SimpleBroadcast: Received message from {} with {} bytes (dummy: {})",
+            "SimpleBroadcast: Received message from {} with {} bytes",
             src,
-            msg.content.len(),
-            msg.dummy_field
+            msg.payload.bytes.len()
         );
-        self.messages_received.fetch_add(1, Ordering::Relaxed);
 
-        // Deliver to parent layer
-        if let Ok(msg_bytes) = self.__formatter.serialize(msg) {
-            let envelope = ("BroadcastMessage".to_string(), msg_bytes);
-            if let Ok(envelope_bytes) = self.__formatter.serialize(&envelope) {
-                let _ = self.deliver(src, &envelope_bytes).await;
+        // Extract the inner AlgorithmMessage and deliver to parent layer
+        if let Err(e) = self.deliver(src, &msg.payload).await {
+            info!("SimpleBroadcast: Failed to deliver to parent: {}", e);
+        }
+    }
+}
+
+// ============================================================================
+// Upper Layer: SimpleBroadcastUpper
+// ============================================================================
+
+#[distbench::message]
+pub struct BroadcastSend {
+    pub content: Vec<u8>,
+    pub sequence: u32,
+}
+
+#[distbench::message]
+pub struct BroadcastEcho {
+    pub content: Vec<u8>,
+    pub original_sender: String,
+}
+
+#[distbench::state]
+pub struct SimpleBroadcastUpper {
+    #[distbench::config(default = false)]
+    start_node: bool,
+
+    #[distbench::config(default = vec![])]
+    messages: Vec<String>,
+
+    send_received: Mutex<Vec<BroadcastSend>>,
+    echo_received: Mutex<Vec<BroadcastEcho>>,
+
+    #[distbench::child]
+    broadcast: Arc<SimpleBroadcast>,
+}
+
+#[async_trait]
+impl Algorithm for SimpleBroadcastUpper {
+    async fn on_start(&self) {
+        info!(
+            "SimpleBroadcastUpper starting | start_node: {}, messages: {:?}",
+            self.start_node, self.messages
+        );
+
+        if self.start_node {
+            info!("SimpleBroadcastUpper: Initiating broadcast through lower layer");
+
+            // Broadcast BroadcastSend messages
+            for (i, message) in self.messages.iter().enumerate() {
+                let send_msg = self
+                    .package(&BroadcastSend {
+                        content: message.as_bytes().to_vec(),
+                        sequence: i as u32,
+                    })
+                    .unwrap();
+
+                if let Err(e) = self.broadcast.broadcast(send_msg).await {
+                    info!("SimpleBroadcastUpper: Error broadcasting send: {}", e);
+                }
+            }
+
+            info!("SimpleBroadcastUpper: Initiating broadcast through lower layer, echo");
+
+            // Also broadcast a BroadcastEcho message
+            let echo_msg = self
+                .package(&BroadcastEcho {
+                    content: b"Echo from upper layer".to_vec(),
+                    original_sender: self.id().to_string(),
+                })
+                .unwrap();
+
+            if let Err(e) = self.broadcast.broadcast(echo_msg).await {
+                info!("SimpleBroadcastUpper: Error broadcasting echo: {}", e);
             }
         }
+    }
 
-        Some(format!("Acknowledged {} bytes", msg.content.len()))
+    async fn on_exit(&self) {
+        info!("SimpleBroadcastUpper exiting");
+    }
+
+    async fn report(&self) -> Option<HashMap<impl Display, impl Display>> {
+        Some(hash_map! {
+            "send_received" => self.send_received.lock().await.len().to_string(),
+            "echo_received" => self.echo_received.lock().await.len().to_string(),
+            "start_node" => self.start_node.to_string(),
+        })
+    }
+}
+
+#[distbench::handlers]
+impl SimpleBroadcastUpper {}
+
+#[distbench::handlers(from = broadcast)]
+impl SimpleBroadcastUpper {
+    async fn broadcast_send(&self, src: PeerId, msg: &BroadcastSend) {
+        info!(
+            "SimpleBroadcastUpper: Received BroadcastSend from {} | sequence: {}, {} bytes",
+            src,
+            msg.sequence,
+            msg.content.len()
+        );
+        let mut send_received = self.send_received.lock().await;
+        send_received.push(msg.clone());
+    }
+
+    async fn broadcast_echo(&self, src: PeerId, msg: &BroadcastEcho) {
+        info!(
+            "SimpleBroadcastUpper: Received BroadcastEcho from {} | original_sender: {}, {} bytes",
+            src,
+            msg.original_sender,
+            msg.content.len()
+        );
+        let mut echo_received = self.echo_received.lock().await;
+        echo_received.push(msg.clone());
     }
 }

@@ -264,15 +264,32 @@ A **parent algorithm** can have one or more **child algorithms**. Child algorith
 
 The parent algorithm can:
 
+- Define message types that will be delivered from child algorithms
 - Intercept messages from child algorithms
 - Call methods on child algorithms
 - Configure child algorithms independently
 
 ### Defining a Layered Algorithm
 
-#### Step 1: Mark Child Algorithms
+#### Step 1: Define Parent Message Types
 
-Use the `#[distbench::child]` attribute to declare child algorithms:
+The parent algorithm defines the message types it expects to receive from children:
+
+```rust
+#[distbench::message]
+struct UpperSend {
+    message: Vec<u8>,
+}
+
+#[distbench::message]
+struct UpperEcho {
+    message: Vec<u8>,
+}
+```
+
+#### Step 2: Mark Child Algorithms
+
+Use the `#[distbench::child]` attribute to declare child algorithms in the parent:
 
 ```rust
 #[distbench::state]
@@ -280,7 +297,7 @@ pub struct UpperLayer {
     #[distbench::config(default = false)]
     start_node: bool,
 
-    messages_from_lower: AtomicU64,
+    messages_from_lower: Mutex<Vec<UpperSend>>,
 
     // Child algorithm
     #[distbench::child]
@@ -288,59 +305,9 @@ pub struct UpperLayer {
 }
 ```
 
-#### Step 2: Child Delivers Messages to Parent
+#### Step 3: Parent Sends Messages Through Child
 
-In the child algorithm, use `self.deliver()` to send messages to the parent:
-
-```rust
-#[distbench::handlers]
-impl LowerLayer {
-    async fn broadcast_message(&self, src: PeerId, msg: &BroadcastMessage) -> Option<String> {
-        info!("LowerLayer: Received message from {}", src);
-
-        // Deliver to parent layer
-        if let Ok(msg_bytes) = self.__formatter.serialize(msg) {
-            let envelope = ("BroadcastMessage".to_string(), msg_bytes);
-            if let Ok(envelope_bytes) = self.__formatter.serialize(&envelope) {
-                let _ = self.deliver(src, &envelope_bytes).await;
-            }
-        }
-
-        Some("Acknowledged".to_string())
-    }
-}
-```
-
-**Important:** The message envelope must be a tuple of `(String, Vec<u8>)` where:
-
-- The string is the message type name (e.g., `"BroadcastMessage"`)
-- The bytes are the serialized message payload
-
-#### Step 3: Parent Intercepts Child Messages
-
-Use `#[distbench::handlers(from = child_name)]` to intercept messages from a child:
-
-```rust
-#[distbench::handlers(from = broadcast)]
-impl UpperLayer {
-    async fn broadcast_message(&self, src: PeerId, msg: &BroadcastMessage) -> Option<String> {
-        info!(
-            "UpperLayer: Intercepted message from lower layer! Source: {}, {} bytes",
-            src,
-            msg.content.len()
-        );
-        self.messages_from_lower.fetch_add(1, Ordering::Relaxed);
-
-        Some(format!("Upper layer saw {} bytes", msg.content.len()))
-    }
-}
-```
-
-**Note:** The handler name must match the message type name from the child's `deliver()` call.
-
-#### Step 4: Parent Calls Child Methods
-
-The parent can call public methods on the child algorithm:
+The parent packages its own messages and passes them to the child's methods:
 
 ```rust
 #[async_trait]
@@ -348,12 +315,67 @@ impl Algorithm for UpperLayer {
     async fn on_start(&self) {
         if self.start_node {
             info!("UpperLayer: Initiating broadcast through lower layer");
-            let test_data = b"Hello from upper layer!".to_vec();
-            self.broadcast.broadcast(test_data).await;
+
+            // Package parent's message type
+            let msg = self.package(&UpperSend {
+                message: b"Hello from upper layer!".to_vec(),
+            }).unwrap();
+
+            // Call child's broadcast method with the packaged message
+            self.broadcast.broadcast(msg).await;
         }
     }
 }
 ```
+
+#### Step 4: Child Delivers Messages to Parent
+
+The child algorithm delivers messages to the parent using `self.deliver()`:
+
+```rust
+impl LowerLayer {
+    pub async fn broadcast(&self, msg: AlgorithmMessage) {
+        // ... broadcast logic ...
+
+        // Deliver to parent layer
+        if let Err(e) = self.deliver(src, &msg).await {
+            error!("Failed to deliver to parent: {}", e);
+        }
+    }
+}
+```
+
+**Important:** The child calls `self.deliver(src, &algorithm_message)` directly with the `AlgorithmMessage` received from the parent. No manual envelope creation or serialization is needed.
+
+#### Step 5: Parent Intercepts Child Messages
+
+Use `#[distbench::handlers(from = child_name)]` to intercept messages delivered from a child:
+
+```rust
+#[distbench::handlers(from = broadcast)]
+impl UpperLayer {
+    async fn upper_send(&self, src: PeerId, msg: &UpperSend) {
+        info!(
+            "UpperLayer: Received send message from {}, {} bytes",
+            src,
+            msg.message.len()
+        );
+        let mut messages = self.messages_from_lower.lock().await;
+        messages.push(msg.clone());
+    }
+
+    async fn upper_echo(&self, src: PeerId, msg: &UpperEcho) {
+        info!(
+            "UpperLayer: Received echo message from {}, {} bytes",
+            src,
+            msg.message.len()
+        );
+        // Process echo message...
+    }
+}
+```
+
+**Note:** The handler name is derived from the message type name (converted to snake_case). For example, `UpperSend` → `upper_send`.
 
 ### Configuring Layered Algorithms
 
@@ -363,15 +385,17 @@ Child algorithms are configured using nested structures in the YAML configuratio
 node1:
   neighbours: [node2, node3]
   start_node: true
+  messages: ["Hello", "World"]
   # Child algorithm configuration
   broadcast:
-    dummy_config: "lower_layer_value"
+    max_retries: 3
 
 node2:
   neighbours: [node1, node3]
   start_node: false
+  messages: []
   broadcast:
-    dummy_config: "lower_layer_value"
+    max_retries: 3
 ```
 
 #### Using YAML Anchors for Reusability
@@ -381,14 +405,15 @@ You can use YAML anchors to avoid repeating configuration:
 ```yaml
 # Shared template (starts with _ to indicate it's not a node)
 _template: &config_template
-  dummy_config: "shared_value"
+  messages: []
   broadcast:
-    dummy_config: "shared_lower_layer"
+    max_retries: 3
 
 node1:
   <<: *config_template # Merge template
   neighbours: [node2, node3]
   start_node: true
+  messages: ["Hello", "World"]  # Override template value
 
 node2:
   <<: *config_template
@@ -403,8 +428,10 @@ node2:
 See **[Simple Broadcast](src/algorithms/simple_broadcast.rs)** for a complete working example that demonstrates:
 
 - A `SimpleBroadcast` lower layer that broadcasts messages
-- A `SimpleBroadcastUpper` parent layer that intercepts and tracks messages
+- A `SimpleBroadcastUpper` parent layer with multiple message types
 - Communication between layers using `deliver()`
+- Parent packaging messages and passing to child
+- Child delivering messages back to parent
 - Nested configuration with YAML anchors
 
 ### Layering Best Practices
@@ -413,7 +440,7 @@ See **[Simple Broadcast](src/algorithms/simple_broadcast.rs)** for a complete wo
 2. **Minimal Coupling** - Layers should communicate through well-defined message types
 3. **Independent Testing** - Each layer should be testable on its own
 4. **Documentation** - Document the interface between layers clearly
-5. **Error Handling** - Handle serialization errors when using `deliver()`
+5. **Type Safety** - Define parent message types that match your protocol's needs
 
 ## Signed Messages
 

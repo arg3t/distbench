@@ -92,6 +92,7 @@ pub trait DeliverableAlgorithm: Send + Sync + 'static {
     async fn deliver(
         &self,
         src: PeerId,
+        msg_type_id: &String,
         msg_bytes: &[u8],
     ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 }

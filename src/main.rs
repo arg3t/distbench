@@ -222,12 +222,6 @@ async fn run_local_mode(
 
     let all_peer_addresses = Arc::new(all_peer_addresses);
 
-    info!("Local mode peer map:");
-    for (numeric_id, address) in all_peer_addresses.iter() {
-        let peer_id = all_peer_ids.get(numeric_id).unwrap();
-        info!("  - {} (Node {}): {}", peer_id, numeric_id, address);
-    }
-
     for (node_id_str, node_def) in config.iter() {
         let node_id = PeerId::new(node_id_str.clone());
         let (_, neighbour_ids) = get_neighbours(config, node_id_str, &node_id);

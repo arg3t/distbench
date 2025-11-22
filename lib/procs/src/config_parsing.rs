@@ -253,7 +253,7 @@ pub(crate) fn generate_config_struct(
                 let ty = &cf.field_type;
                 quote! { #ty }
             };
-            quote! { pub #name: #config_ty }
+            quote! { pub #name: Option<#config_ty> }
         })
         .collect();
 

@@ -16,7 +16,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{community::KeyStore, crypto::Signature, PeerError, PeerId};
+use crate::{
+    community::KeyStore, crypto::Signature, messages::AlgorithmMessage, PeerError, PeerId,
+};
 
 /// A trait for types that can be signed.
 pub trait Digest {
@@ -262,6 +264,12 @@ where
     }
 }
 
+impl Digest for AlgorithmMessage {
+    fn digest(&self) -> [u8; 32] {
+        blake3::hash(self.bytes.as_slice()).into()
+    }
+}
+
 impl Verifiable<String> for String {
     /// For `String`, verification is a no-op.
     fn verify(self, _keystore: &KeyStore) -> Result<String, PeerError> {
@@ -414,5 +422,11 @@ where
                 Ok(Err(error_value))
             }
         }
+    }
+}
+
+impl Verifiable<AlgorithmMessage> for AlgorithmMessage {
+    fn verify(self, _: &KeyStore) -> Result<AlgorithmMessage, PeerError> {
+        Ok(self)
     }
 }

@@ -223,18 +223,11 @@ fn generate_deliverable_impl(
             async fn deliver(
                 &self,
                 src: ::distbench::community::PeerId,
+                msg_type_id: &String,
                 msg_bytes: &[u8],
             ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 use ::distbench::Format;
                 use ::distbench::signing::Verifiable;
-
-                // First, deserialize to (String, Vec<u8>)
-                let (msg_type_id, msg_bytes): (String, Vec<u8>) = self.algorithm.__formatter
-                    .deserialize(&msg_bytes)
-                    .map_err(|e| ::distbench::PeerError::DeserializationFailed {
-                        message: format!("Failed to deserialize message envelope: {}", e)
-                    })?;
-
                 ::log::trace!("DeliverableAlgorithm::deliver - Received message of type '{}' from {:?}", msg_type_id, src);
 
                 // Then dispatch to the appropriate handler

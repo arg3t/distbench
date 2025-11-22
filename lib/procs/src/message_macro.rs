@@ -78,11 +78,20 @@ pub(crate) fn message_impl(item: TokenStream) -> TokenStream {
         }
     };
 
+    let packagable_impl = quote! {
+        impl ::distbench::messages::Packagable for #struct_name {
+            fn type_id() -> &'static str {
+                stringify!(#struct_name)
+            }
+        }
+    };
+
     let output = quote! {
         #input
         #hashable_impl
         #verifiable_impl
         #as_ref_impl
+        #packagable_impl
     };
 
     output.into()

@@ -5,7 +5,7 @@ description = "Framework for distributed algorithms in Python"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Yigit" }
+    { name = "Yigit Colakoglu <root@yigit.run>" }
 ]
 dependencies = [
     "pyyaml>=6.0",

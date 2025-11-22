@@ -3,7 +3,7 @@
 //! This macro transforms an algorithm state struct into a complete algorithm
 //! implementation with configuration support and peer management.
 
-use crate::config_parsing::{extract_fields, generate_config_struct, ChildField};
+use crate::config_parsing::{extract_fields, generate_config_struct, ChildField, ConfigField};
 use crate::peer_generation::generate_peer_structs;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -123,12 +123,14 @@ pub(crate) fn algorithm_state_impl(_attr: TokenStream, item: TokenStream) -> Tok
 
     let field_inits = generate_field_initializers(&config_fields, &default_fields);
     let helper_fns = generate_helper_fns(alg_name, &peer_name);
+    let default_initializers = generate_default_initializers(&config_fields, &child_fields);
     let factory_impl = generate_factory_impl(
         &config_name,
         alg_name,
         &peer_name,
         &field_inits,
         &child_fields,
+        &default_initializers,
     );
     let peer_struct = generate_peer_structs(&peer_name);
     let self_terminating_impl = generate_self_terminating_impl(alg_name);
@@ -195,10 +197,17 @@ fn generate_helper_fns(alg_name: &syn::Ident, peer_name: &syn::Ident) -> TokenSt
                 self.__parent.set(parent).map_err(|_| ::distbench::ConfigError::SetParentError { child_name: self.name().to_string() })
             }
 
-            async fn deliver(&self, src: ::distbench::community::PeerId, msg_bytes: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+            fn package<M: ::distbench::messages::Packagable>(&self, msg: &M) -> Result<::distbench::messages::AlgorithmMessage, ::distbench::FormatError> {
+                Ok(::distbench::messages::AlgorithmMessage {
+                    type_id: M::type_id().to_string(),
+                    bytes: self.__formatter.serialize(msg)?,
+                })
+            }
+
+            async fn deliver(&self, src: ::distbench::community::PeerId, msg: &::distbench::messages::AlgorithmMessage) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(parent) = self.__parent.get() {
                     if let Some(parent_arc) = parent.upgrade() {
-                        return parent_arc.deliver(src, msg_bytes).await;
+                        return parent_arc.deliver(src, &msg.type_id, &msg.bytes).await;
                     }
                 }
                 Ok(None)
@@ -249,7 +258,7 @@ fn generate_child_field_initializers(
             let #name = {
                 let mut new_path = path.clone();
                 new_path.push(stringify!(#name).to_string());
-                self.#name.build(format.clone(), key.clone(), id.clone(), community.clone(), new_path)?
+                self.#name.unwrap_or_default().build(format.clone(), key.clone(), id.clone(), community.clone(), new_path)?
             };
         });
         initializers.push(quote! { #name });
@@ -289,6 +298,7 @@ fn generate_factory_impl(
     peer_name: &syn::Ident,
     field_inits: &[TokenStream2],
     child_fields: &[ChildField],
+    default_initializers: &[TokenStream2],
 ) -> TokenStream2 {
     let alg_name_str = alg_name.to_string();
     let peer_name_trait = syn::Ident::new(
@@ -365,6 +375,14 @@ fn generate_factory_impl(
                 Ok(self_arc)
             }
         }
+
+        impl Default for #config_name {
+            fn default() -> Self {
+                Self {
+                    #(#default_initializers,)*
+                }
+            }
+        }
     }
 }
 
@@ -392,6 +410,24 @@ fn generate_self_terminating_impl(alg_name: &syn::Ident) -> TokenStream2 {
             }
         }
     }
+}
+
+/// Generate default initializers for the config struct.
+fn generate_default_initializers(
+    config_fields: &[ConfigField],
+    child_fields: &[ChildField],
+) -> Vec<TokenStream2> {
+    config_fields
+        .iter()
+        .map(|cf| {
+            let name = &cf.field_name;
+            quote! { #name: None }
+        })
+        .chain(child_fields.iter().map(|cf| {
+            let name = &cf.field_name;
+            quote! { #name: None }
+        }))
+        .collect()
 }
 
 /// Generate the message handler block that calls the respective algorithm's handler.
