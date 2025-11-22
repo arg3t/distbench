@@ -55,8 +55,8 @@ struct CliArgs {
     #[arg(short, long)]
     report_folder: Option<PathBuf>,
 
-    /// Base port for local instances
-    #[arg(short, long, default_value_t = 10000)]
+    /// Base port for local instances, or the port for network mode
+    #[arg(short, long, default_value_t = 8000)]
     port_base: u16,
 
     /// Latency range in milliseconds (e.g. "100-200")
@@ -64,7 +64,7 @@ struct CliArgs {
     latency: String,
 
     /// Startup delay in milliseconds (e.g. "100")
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(short, long, default_value_t = 200)]
     startup_delay: u64,
 }
 
@@ -217,15 +217,15 @@ async fn run_local_mode(
     let stop_signal = Arc::new(Notify::new());
     let mut handles = Vec::new();
 
-    let (all_peer_sockets, all_peer_ids, peer_id_to_numeric_addr) =
-        build_tcp_mappings(config, Some(args.port_base));
+    let (all_peer_addresses, all_peer_ids, peer_id_to_numeric_addr) =
+        build_tcp_mappings(config, args.port_base, true);
 
-    let all_peer_sockets = Arc::new(all_peer_sockets);
+    let all_peer_addresses = Arc::new(all_peer_addresses);
 
     info!("Local mode peer map:");
-    for (numeric_id, socket) in all_peer_sockets.iter() {
+    for (numeric_id, address) in all_peer_addresses.iter() {
         let peer_id = all_peer_ids.get(numeric_id).unwrap();
-        info!("  - {} (Node {}): {}", peer_id, numeric_id, socket);
+        info!("  - {} (Node {}): {}", peer_id, numeric_id, address);
     }
 
     for (node_id_str, node_def) in config.iter() {
@@ -234,7 +234,7 @@ async fn run_local_mode(
 
         let community = setup_tcp_transport::<ThinConnectionManager<_>>(
             &all_peer_ids,
-            all_peer_sockets.clone(),
+            all_peer_addresses.clone(),
             &peer_id_to_numeric_addr,
             &node_id,
             &neighbour_ids,
@@ -288,7 +288,6 @@ async fn run_network_mode(
 ) {
     let stop_signal = Arc::new(Notify::new());
 
-    // --- 1. Get Node ID ---
     let node_id_str = match &args.id {
         Some(id) => id,
         None => {
@@ -305,20 +304,16 @@ async fn run_network_mode(
         }
     };
 
-    // --- 2. Generate mappings from config ---
-    info!("Network mode: Parsing host/port from config...");
-    // Pass `None` for port_base to indicate network mode
-    let (all_peer_sockets, all_peer_ids, peer_id_to_numeric_addr) =
-        build_tcp_mappings(config, None);
+    let (all_peer_addresses, all_peer_ids, peer_id_to_numeric_addr) =
+        build_tcp_mappings(config, args.port_base, false);
 
-    let all_peer_sockets = Arc::new(all_peer_sockets);
+    let all_peer_addresses = Arc::new(all_peer_addresses);
 
-    // --- 3. Spawn the single node ---
     let (_, neighbour_ids) = get_neighbours(config, node_id_str, &node_id);
 
     let community = setup_tcp_transport::<ThinConnectionManager<DelayedTransport<TcpTransport>>>(
         &all_peer_ids,
-        all_peer_sockets.clone(),
+        all_peer_addresses.clone(),
         &peer_id_to_numeric_addr,
         &node_id,
         &neighbour_ids,
@@ -326,10 +321,10 @@ async fn run_network_mode(
     );
 
     let local_numeric_id = peer_id_to_numeric_addr.get(&node_id).unwrap();
-    let local_bind_addr = all_peer_sockets.get(local_numeric_id).unwrap();
+    let local_address = all_peer_addresses.get(local_numeric_id).unwrap();
     info!(
         "Starting node {} (Node {}) on {}...",
-        node_id, local_numeric_id, local_bind_addr
+        node_id, local_numeric_id, local_address
     );
 
     let serve_handle = start_node!(
@@ -445,18 +440,20 @@ pub fn setup_offline_transport<CM: ConnectionManager<DelayedTransport<ChannelTra
 ///
 /// # Arguments
 /// * `config` - The loaded config file.
-/// * `port_base` - `Some(port)` for local mode, `None` for network mode.
+/// * `port_base` - Base port number.
+/// * `is_local` - If true, use 127.0.0.1:port_base+i. If false, use node_id:port_base.
 ///
 /// # Returns
 /// Tuple containing:
-/// 1. `HashMap<TcpAddress(u16), SocketAddr>` - Map of numeric IDs to physical sockets.
+/// 1. `HashMap<TcpAddress(u16), String>` - Map of numeric IDs to address strings (ip:port or hostname:port).
 /// 2. `HashMap<TcpAddress(u16), PeerId>` - Map of numeric IDs to logical PeerIds.
 /// 3. `HashMap<PeerId, TcpAddress(u16)>` - Map of logical PeerIds to numeric IDs.
 fn build_tcp_mappings(
     config: &ConfigFile,
-    port_base: Option<u16>,
+    port_base: u16,
+    is_local: bool,
 ) -> (
-    HashMap<TcpAddress, SocketAddr>,
+    HashMap<TcpAddress, String>,
     HashMap<TcpAddress, PeerId>,
     HashMap<PeerId, TcpAddress>,
 ) {
@@ -464,7 +461,7 @@ fn build_tcp_mappings(
     let mut sorted_node_ids: Vec<_> = config.keys().cloned().collect();
     sorted_node_ids.sort();
 
-    let mut all_peer_sockets = HashMap::new();
+    let mut all_peer_addresses = HashMap::new();
     let mut all_peer_ids = HashMap::new();
     let mut peer_id_to_numeric_addr = HashMap::new();
 
@@ -472,52 +469,28 @@ fn build_tcp_mappings(
         let numeric_id = i as u16;
         let tcp_addr = TcpAddress(numeric_id);
         let peer_id = PeerId::new(node_id_str.clone());
-        let node_def = config.get(node_id_str).unwrap();
 
-        let socket_addr = if let Some(port_base) = port_base {
+        let addr_string = if is_local {
             // Local Mode: Assign 127.0.0.1:port_base + i
             let port = port_base + numeric_id;
-            let addr_str = format!("127.0.0.1:{}", port);
-            addr_str
-                .parse()
-                .unwrap_or_else(|_| panic!("Failed to parse local address: {}", addr_str))
+            format!("127.0.0.1:{}", port)
         } else {
-            // Network Mode: Read from config
-            let (host, port) = match (&node_def.host, node_def.port) {
-                (Some(h), Some(p)) => (h, p),
-                _ => {
-                    error!(
-                        "Network mode requires 'host' and 'port' fields for all nodes (missing for '{}').",
-                        node_id_str
-                    );
-                    process::exit(1);
-                }
-            };
-            let addr_str = format!("{}:{}", host, port);
-            match addr_str.parse::<SocketAddr>() {
-                Ok(addr) => addr,
-                Err(e) => {
-                    error!(
-                        "Failed to parse address '{}' for node {}: {}",
-                        addr_str, node_id_str, e
-                    );
-                    process::exit(1);
-                }
-            }
+            // Network Mode: Use node ID as hostname with port_base
+            format!("{}:{}", node_id_str, port_base)
         };
 
-        all_peer_sockets.insert(tcp_addr, socket_addr);
+        all_peer_addresses.insert(tcp_addr, addr_string);
         all_peer_ids.insert(tcp_addr, peer_id.clone());
         peer_id_to_numeric_addr.insert(peer_id, tcp_addr);
     }
 
-    (all_peer_sockets, all_peer_ids, peer_id_to_numeric_addr)
+    (all_peer_addresses, all_peer_ids, peer_id_to_numeric_addr)
 }
 
 /// Sets up a TCP (network) transport for a node.
 fn setup_tcp_transport<CM: ConnectionManager<DelayedTransport<TcpTransport>> + 'static>(
     all_peer_ids: &HashMap<TcpAddress, PeerId>,
-    all_peer_sockets: Arc<HashMap<TcpAddress, SocketAddr>>,
+    all_peer_addresses: Arc<HashMap<TcpAddress, String>>,
     peer_id_to_numeric_addr: &HashMap<PeerId, TcpAddress>,
     node_id: &PeerId,
     neighbours: &HashSet<PeerId>,
@@ -528,7 +501,27 @@ fn setup_tcp_transport<CM: ConnectionManager<DelayedTransport<TcpTransport>> + '
         .get(node_id)
         .unwrap_or_else(|| panic!("Failed to find local numeric ID for node {}", node_id));
 
-    let transport = Arc::new(TcpTransport::new(*local_numeric_id, all_peer_sockets));
+    // Get the local bind address (we bind to 0.0.0.0:port to accept connections on all interfaces)
+    let local_addr_str = all_peer_addresses
+        .get(local_numeric_id)
+        .unwrap_or_else(|| panic!("Failed to find address for node {}", node_id));
+
+    // Extract port from address string and bind to 0.0.0.0:port
+    let port = local_addr_str
+        .split(':')
+        .nth(1)
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or_else(|| panic!("Failed to parse port from address: {}", local_addr_str));
+
+    let local_bind_addr: SocketAddr = format!("0.0.0.0:{}", port)
+        .parse()
+        .unwrap_or_else(|_| panic!("Failed to create bind address for port {}", port));
+
+    let transport = Arc::new(TcpTransport::new(
+        *local_numeric_id,
+        all_peer_addresses,
+        local_bind_addr,
+    ));
     let delayed_transport = DelayedTransport::new(transport, latency);
 
     // Create map of *remote* peers (numeric ID -> PeerId)

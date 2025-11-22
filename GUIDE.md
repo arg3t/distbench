@@ -12,6 +12,7 @@ This guide teaches you how to implement distributed algorithms using the Distben
 - [Configuration](#configuration)
 - [Example Algorithms](#example-algorithms)
 - [Testing](#testing)
+- [Docker Deployment](#docker-deployment)
 
 ## Overview
 
@@ -256,11 +257,13 @@ The framework supports **algorithm layering**, which allows you to compose compl
 ### How Layering Works
 
 A **parent algorithm** can have one or more **child algorithms**. Child algorithms:
+
 - Run as part of the parent algorithm's lifecycle
 - Can deliver messages up to the parent
 - Have their own message handlers and state
 
 The parent algorithm can:
+
 - Intercept messages from child algorithms
 - Call methods on child algorithms
 - Configure child algorithms independently
@@ -309,6 +312,7 @@ impl LowerLayer {
 ```
 
 **Important:** The message envelope must be a tuple of `(String, Vec<u8>)` where:
+
 - The string is the message type name (e.g., `"BroadcastMessage"`)
 - The bytes are the serialized message payload
 
@@ -382,7 +386,7 @@ _template: &config_template
     dummy_config: "shared_lower_layer"
 
 node1:
-  <<: *config_template  # Merge template
+  <<: *config_template # Merge template
   neighbours: [node2, node3]
   start_node: true
 
@@ -397,6 +401,7 @@ node2:
 ### Complete Example
 
 See **[Simple Broadcast](src/algorithms/simple_broadcast.rs)** for a complete working example that demonstrates:
+
 - A `SimpleBroadcast` lower layer that broadcasts messages
 - A `SimpleBroadcastUpper` parent layer that intercepts and tracks messages
 - Communication between layers using `deliver()`
@@ -609,6 +614,80 @@ Write unit tests for your algorithm logic:
 
 ```bash
 cargo test
+```
+
+## Docker Deployment
+
+Distbench can run in Docker containers with each node in a separate container. The system uses node IDs as hostnames in a dedicated Docker network.
+
+### Quick Start
+
+#### 1. Generate Docker Compose File
+
+Use the `dockerize.py` script to create a docker-compose configuration:
+
+```bash
+python3 dockerize.py \
+  -c configs/echo.yaml \
+  -a Echo \
+  -o docker-compose.yaml
+```
+
+#### 2. Run the System
+
+```bash
+# Build and start all containers
+docker-compose up --build
+
+# Run in detached mode
+docker-compose up --build -d
+
+# View logs
+docker-compose logs -f
+
+# Stop and clean up
+docker-compose down
+```
+
+### Script Options
+
+```bash
+Required:
+  -c, --config PATH         Path to configuration YAML file
+  -a, --algorithm NAME      Algorithm name (e.g., Echo)
+
+Optional:
+  -o, --output PATH         Output path (default: docker-compose.yaml)
+  -f, --format FORMAT       Serialization: 'json'/'bincode/msgpack'
+  -t, --timeout SECONDS     Timeout in seconds (default: 30)
+  -v, --verbose             Verbosity (-v, -vv, -vvv)
+  --latency RANGE           Network latency in ms (e.g., '10-50')
+  --startup-delay MS        Startup delay in milliseconds (default: 600)
+  --report-dir PATH         Directory for storing node reports
+  --port PORT               Port number for all nodes (default: 8000)
+```
+
+### Examples
+
+**With network latency simulation:**
+
+```bash
+python3 dockerize.py \
+  -c configs/echo.yaml \
+  -a Echo \
+  --latency 10-50 \
+  -o docker-compose.yaml
+```
+
+**With report collection:**
+
+```bash
+mkdir reports
+python3 dockerize.py \
+  -c configs/echo.yaml \
+  -a Echo \
+  --report-dir ./reports \
+  -o docker-compose.yaml
 ```
 
 ## Tips and Best Practices

@@ -47,16 +47,23 @@ impl Address for TcpAddress {}
 pub struct TcpTransport {
     /// This node's own logical ID.
     pub local_id: TcpAddress,
-    /// Map of all logical IDs to their physical socket addresses.
-    pub peer_sockets: Arc<HashMap<TcpAddress, SocketAddr>>,
+    /// Map of all logical IDs to their addresses (IP:port or hostname:port strings).
+    pub peer_addresses: Arc<HashMap<TcpAddress, String>>,
+    /// This node's bind address.
+    pub local_bind_addr: SocketAddr,
 }
 
 impl TcpTransport {
     /// Creates a new TCP transport.
-    pub fn new(local_id: TcpAddress, peer_sockets: Arc<HashMap<TcpAddress, SocketAddr>>) -> Self {
+    pub fn new(
+        local_id: TcpAddress,
+        peer_addresses: Arc<HashMap<TcpAddress, String>>,
+        local_bind_addr: SocketAddr,
+    ) -> Self {
         Self {
             local_id,
-            peer_sockets,
+            peer_addresses,
+            local_bind_addr,
         }
     }
 }
@@ -68,25 +75,23 @@ impl Transport for TcpTransport {
 
     /// Establishes a new TCP connection to the target logical address.
     async fn connect(&self, addr: Self::Address) -> Result<Self::Connection> {
-        let socket_addr =
-            self.peer_sockets
-                .get(&addr)
-                .ok_or_else(|| TransportError::ConnectionFailed {
-                    address: addr.to_string(),
-                    message: "No physical SocketAddr found for numeric ID".to_string(),
-                })?;
+        let peer_addr = self
+            .peer_addresses
+            .get(&addr)
+            .ok_or_else(|| TransportError::ConnectionFailed {
+                address: addr.to_string(),
+                message: "No address found for numeric ID".to_string(),
+            })?;
 
-        trace!(
-            "Connecting to logical {} (physical {})...",
-            addr,
-            socket_addr
-        );
-        let socket = TcpStream::connect(socket_addr).await.map_err(|e| {
-            TransportError::ConnectionFailed {
-                address: socket_addr.to_string(),
+        trace!("Connecting to logical {} (address {})...", addr, peer_addr);
+
+        let socket = TcpStream::connect(peer_addr.as_str())
+            .await
+            .map_err(|e| TransportError::ConnectionFailed {
+                address: peer_addr.clone(),
                 message: e.to_string(),
-            }
-        })?;
+            })?;
+
         socket.set_nodelay(true).map_err(map_io_err)?;
 
         // --- Perform Handshake ---
@@ -114,17 +119,9 @@ impl Transport for TcpTransport {
         server: impl Server<Self> + 'static,
         stop_signal: Arc<Notify>,
     ) -> Result<()> {
-        let local_socket_addr =
-            self.peer_sockets
-                .get(&self.local_id)
-                .ok_or_else(|| TransportError::ListenFailed {
-                    address: self.local_id.to_string(),
-                    message: "No physical SocketAddr found for local numeric ID".to_string(),
-                })?;
-
-        let listener = TcpListener::bind(local_socket_addr).await.map_err(|e| {
+        let listener = TcpListener::bind(&self.local_bind_addr).await.map_err(|e| {
             TransportError::ListenFailed {
-                address: local_socket_addr.to_string(),
+                address: self.local_bind_addr.to_string(),
                 message: e.to_string(),
             }
         })?;
@@ -132,7 +129,7 @@ impl Transport for TcpTransport {
         trace!(
             "Listening for connections on logical {} (physical {})",
             self.local_id,
-            local_socket_addr
+            self.local_bind_addr
         );
 
         let mut connection_handlers = JoinSet::new();
@@ -166,7 +163,7 @@ impl Transport for TcpTransport {
                                 stop_signal_clone,
                             ).await {
                                 match e {
-                                    TransportError::Io { message } if message.contains("Connection reset by peer") || message.contains("unexpected EOF") || message.contains("Connection refused") => {
+                                    TransportError::Io { message } if message.contains("Connection reset by peer") || message.contains("unexpected EOF") || message.contains("unexpected end of file") || message.contains("Connection refused") => {
                                         trace!("Connection from {} closed gracefully", remote_socket_addr);
                                     }
                                     _ => warn!("Connection from {} ended with error: {}", remote_socket_addr, e),
@@ -337,6 +334,7 @@ impl TcpConnection {
                 match &e {
                     TransportError::Io { message }
                         if message.contains("unexpected EOF")
+                            || message.contains("unexpected end of file")
                             || message.contains("Connection reset by peer") =>
                     {
                         trace!(

@@ -4,7 +4,6 @@
 //! in a distributed system, along with supporting types for peer communication.
 
 use async_trait::async_trait;
-use dashmap::mapref::one::Ref;
 use dashmap::DashMap;
 use log::{error, trace};
 use serde::Serialize;
@@ -511,9 +510,6 @@ where
             trace!("Node::start - Spawning serve task");
             let algo = serve_self.algo.clone();
             let metrics = serve_self.metrics.clone();
-            if startup_delay > 0 {
-                tokio::time::sleep(Duration::from_millis(startup_delay)).await;
-            }
             let result = transport.serve(serve_self, stop_signal).await;
             match result {
                 Ok(_) => {
@@ -524,8 +520,9 @@ where
             }
         }));
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
+        if startup_delay > 0 {
+            tokio::time::sleep(Duration::from_millis(startup_delay)).await;
+        }
         let _ = self.status_tx.send(NodeStatus::KeySharing);
 
         Ok(serve_handle)

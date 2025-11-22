@@ -1,10 +1,9 @@
 """Main entry point and CLI for the distributed algorithms framework."""
 
 import asyncio
-import json
 import logging
-import sys
 import os
+import sys
 from typing import Any
 
 import click
@@ -233,7 +232,7 @@ async def run_offline(
 
 
 def build_tcp_mappings(
-    config_data: dict[str, Any], port_base: int | None
+    config_data: dict[str, Any], port_base: int, is_local: bool
 ) -> tuple[
     dict[TcpAddress, SocketAddress],
     dict[TcpAddress, PeerId],
@@ -243,8 +242,8 @@ def build_tcp_mappings(
 
     Args:
         config_data: The loaded configuration
-        port_base: If not None, use local mode (127.0.0.1:port_base + i).
-                   If None, use network mode (read host/port from config).
+        port_base: Base port number
+        is_local: If True, use 127.0.0.1:port_base+i. If False, use node_id:port_base.
 
     Returns:
         A tuple of (all_peer_sockets, all_peer_ids, peer_id_to_numeric_addr)
@@ -257,7 +256,6 @@ def build_tcp_mappings(
     sorted_node_ids = sorted(config_data.keys())
 
     for i, node_id_str in enumerate(sorted_node_ids):
-        node_config = config_data[node_id_str]
         # Use u16 (0-65535) for the numeric ID
         numeric_id = i
         if numeric_id > 65535:
@@ -266,18 +264,12 @@ def build_tcp_mappings(
         tcp_addr = TcpAddress(numeric_id)
         peer_id = PeerId(node_id_str)
 
-        if port_base is not None:
+        if is_local:
             # Local mode: assign 127.0.0.1:port_base + i
             socket_addr = SocketAddress("127.0.0.1", port_base + i)
         else:
-            # Network mode: read from config
-            host = node_config.get("host")
-            port = node_config.get("port")
-            if not host or not port:
-                raise ValueError(
-                    f"Network mode requires 'host' and 'port' for node '{node_id_str}'"
-                )
-            socket_addr = SocketAddress(str(host), int(port))
+            # Network mode: use node ID as hostname with port_base
+            socket_addr = SocketAddress(node_id_str, port_base)
 
         all_peer_sockets[tcp_addr] = socket_addr
         all_peer_ids[tcp_addr] = peer_id
@@ -319,7 +311,7 @@ async def run_local(
         all_peer_sockets,
         all_peer_ids,
         peer_id_to_numeric_addr,
-    ) = build_tcp_mappings(config_data, port_base)
+    ) = build_tcp_mappings(config_data, port_base, True)
 
     logger.trace("Local mode node mappings:")
     for numeric_id, peer_id in all_peer_ids.items():
@@ -385,6 +377,7 @@ async def run_network(
     format_name: str,
     timeout: float,
     node_id_str: str,
+    port_base: int,
     report_dir: str | None,
     latency: tuple[int, int] = (0, 0),
     startup_delay: int = 0,
@@ -418,7 +411,7 @@ async def run_network(
         all_peer_sockets,
         all_peer_ids,
         peer_id_to_numeric_addr,
-    ) = build_tcp_mappings(config_data, None)  # None = network mode
+    ) = build_tcp_mappings(config_data, port_base, False)
 
     logger.trace("Network mode node mappings:")
     for numeric_id, peer_id in all_peer_ids.items():
@@ -529,10 +522,10 @@ async def run_network(
 @click.option(
     "--port-base",
     "-p",
-    default=10000,
+    default=8000,
     type=int,
     show_default=True,
-    help="Base port for --mode local",
+    help="Base port for local/network modes",
 )
 @click.option(
     "--report-dir",
@@ -551,7 +544,7 @@ async def run_network(
 @click.option(
     "--startup-delay",
     "-s",
-    default=0,
+    default=500,
     type=int,
     show_default=True,
     help="Startup delay in milliseconds before nodes begin",
@@ -619,7 +612,9 @@ def main(
         if "-" in latency:
             parts = latency.split("-")
             if len(parts) != 2:
-                click.echo(f"Error: Invalid latency format '{latency}'. Expected 'min-max'", err=True)
+                click.echo(
+                    f"Error: Invalid latency format '{latency}'. Expected 'min-max'", err=True
+                )
                 sys.exit(1)
             latency_range = (int(parts[0]), int(parts[1]))
         else:
@@ -634,12 +629,21 @@ def main(
     try:
         if mode == "offline":
             asyncio.run(
-                run_offline(config, algorithm, format, timeout, report_dir, latency_range, startup_delay)
+                run_offline(
+                    config, algorithm, format, timeout, report_dir, latency_range, startup_delay
+                )
             )
         elif mode == "local":
             asyncio.run(
                 run_local(
-                    config, algorithm, format, timeout, port_base, report_dir, latency_range, startup_delay
+                    config,
+                    algorithm,
+                    format,
+                    timeout,
+                    port_base,
+                    report_dir,
+                    latency_range,
+                    startup_delay,
                 )
             )
         else:
@@ -648,7 +652,17 @@ def main(
                 click.echo("Error: --id is required for --mode network", err=True)
                 sys.exit(1)
             asyncio.run(
-                run_network(config, algorithm, format, timeout, node_id, report_dir, latency_range, startup_delay)
+                run_network(
+                    config,
+                    algorithm,
+                    format,
+                    timeout,
+                    node_id,
+                    port_base,
+                    report_dir,
+                    latency_range,
+                    startup_delay,
+                )
             )
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Interrupted by user")

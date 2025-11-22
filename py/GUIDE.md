@@ -4,15 +4,16 @@ This guide teaches you how to implement distributed algorithms using the Python 
 
 ## Table of Contents
 
--   [Overview](#overview)
--   [Step-by-Step Tutorial: PingPong](#step-by-step-tutorial-pingpong)
--   [Algorithm API Reference](#algorithm-api-reference)
--   [Signed Messages & Verification](#signed-messages--verification)
--   [Algorithm Layering](#algorithm-layering)
--   [Configuration](#configuration)
--   [Example Algorithms](#example-algorithms)
--   [Execution Modes & Testing](#execution-modes--testing)
--   [Tips and Best Practices](#tips-and-best-practices)
+- [Overview](#overview)
+- [Step-by-Step Tutorial: PingPong](#step-by-step-tutorial-pingpong)
+- [Algorithm API Reference](#algorithm-api-reference)
+- [Signed Messages & Verification](#signed-messages--verification)
+- [Algorithm Layering](#algorithm-layering)
+- [Configuration](#configuration)
+- [Example Algorithms](#example-algorithms)
+- [Execution Modes & Testing](#execution-modes--testing)
+- [Docker Deployment](#docker-deployment)
+- [Tips and Best Practices](#tips-and-best-practices)
 
 ## Overview
 
@@ -54,7 +55,7 @@ class Ping:
 @message
 class Pong:
     sequence: int
-````
+```
 
 ### Step 3: Define Algorithm State
 
@@ -158,8 +159,8 @@ Add `async` methods marked with `@handler` to your class. The framework automati
 
 **Handler Patterns:**
 
-  - `async def handler(...) -> ResponseType:`: Defines a **request-response** message. The caller will wait for the response.
-  - `async def handler(...) -> None:`: Defines a **fire-and-forget (cast)** message. The caller will not wait.
+- `async def handler(...) -> ResponseType:`: Defines a **request-response** message. The caller will wait for the response.
+- `async def handler(...) -> None:`: Defines a **fire-and-forget (cast)** message. The caller will not wait.
 
 ### Step 6: Create Configuration File
 
@@ -275,14 +276,14 @@ async def receive_vote(self, src: PeerId, msg: Signed[Vote]) -> None:
 
 **This is a key difference from the Rust version.**
 
-The Python framework **automatically verifies all incoming `Signed[T]` messages** *before* your handler is called.
+The Python framework **automatically verifies all incoming `Signed[T]` messages** _before_ your handler is called.
 
 The framework checks two things:
 
 1.  The signature is cryptographically valid for the message content and the signer's public key.
 2.  The `signer` field inside the message (`msg.signer`) matches the `PeerId` of the node that sent the message (`src`).
 
-If *either* check fails, the framework **automatically drops the message** and logs a warning. You do not need to call `self.verify()` in your handler.
+If _either_ check fails, the framework **automatically drops the message** and logs a warning. You do not need to call `self.verify()` in your handler.
 
 ## Algorithm Layering
 
@@ -295,11 +296,13 @@ The framework supports **algorithm layering**, which allows you to compose compl
 ### How Layering Works
 
 A **parent algorithm** can have one or more **child algorithms**. Child algorithms:
+
 - Run as part of the parent algorithm's lifecycle
 - Can deliver messages up to the parent
 - Have their own message handlers and state
 
 The parent algorithm can:
+
 - Intercept messages from child algorithms
 - Call methods on child algorithms
 - Configure child algorithms independently
@@ -414,7 +417,7 @@ _template: &config_template
     is_sender: false
 
 node1:
-  <<: *config_template  # Merge template
+  <<: *config_template # Merge template
   neighbours: [node2, node3]
   start_node: true
 
@@ -429,6 +432,7 @@ node2:
 ### Complete Example
 
 See **[simple_broadcast.py](distbench/algorithms/simple_broadcast.py)** for a complete working example that demonstrates:
+
 - A `SimpleBroadcast` lower layer that broadcasts messages
 - A `SimpleBroadcastUpper` parent layer that intercepts and tracks messages
 - Communication between layers using `deliver_message()`
@@ -495,8 +499,8 @@ YAML configuration maps node IDs to node definitions:
 node_id:
   neighbours: [list of neighbor node IDs]
   host: "network address" # For network/local mode
-  port: port_number       # For network/local mode
-  algorithm_field: value  # Passed to @distbench config
+  port: port_number # For network/local mode
+  algorithm_field: value # Passed to @distbench config
 ```
 
 ### Fully Connected Topology
@@ -505,22 +509,22 @@ Use an empty `neighbours: []` list to connect a node to all other nodes in the f
 
 ```yaml
 n1:
-  neighbours: []  # Connects to n2, n3
+  neighbours: [] # Connects to n2, n3
   is_sender: true
 n2:
-  neighbours: []  # Connects to n1, n3
+  neighbours: [] # Connects to n1, n3
 n3:
-  neighbours: []  # Connects to n1, n2
+  neighbours: [] # Connects to n1, n2
 ```
 
 ## Example Algorithms
 
 Study these examples to learn different patterns:
 
-  - **[echo.py](distbench/algorithms/echo.py)**: Request-response, `Signed[T]`, `report()`.
-  - **[chang_roberts.py](distbench/algorithms/chang_roberts.py)**: Ring logic, ID comparison, message forwarding, termination.
-  - **[message_chain.py](distbench/algorithms/message_chain.py)**: Forwarding chains, `Signed[T]` in collections (`list[Signed[...]]`), deduplication.
-  - **[simple_broadcast.py](distbench/algorithms/simple_broadcast.py)**: Layered architecture with parent-child communication, demonstrates `child_algorithm()` and `@handler(from_child=...)`.
+- **[echo.py](distbench/algorithms/echo.py)**: Request-response, `Signed[T]`, `report()`.
+- **[chang_roberts.py](distbench/algorithms/chang_roberts.py)**: Ring logic, ID comparison, message forwarding, termination.
+- **[message_chain.py](distbench/algorithms/message_chain.py)**: Forwarding chains, `Signed[T]` in collections (`list[Signed[...]]`), deduplication.
+- **[simple_broadcast.py](distbench/algorithms/simple_broadcast.py)**: Layered architecture with parent-child communication, demonstrates `child_algorithm()` and `@handler(from_child=...)`.
 
 ## Execution Modes & Testing
 
@@ -532,9 +536,9 @@ Runs all nodes in a **single process** using in-memory queues.
 uv run distbench -c configs/echo.yaml -a echo --mode offline
 ```
 
-  - **Pros**: Extremely fast, deterministic, easy to debug with one log stream.
-  - **Cons**: Not realistic; no real network latency or failures.
-  - **Use For**: Initial development and logic testing.
+- **Pros**: Extremely fast, deterministic, easy to debug with one log stream.
+- **Cons**: Not realistic; no real network latency or failures.
+- **Use For**: Initial development and logic testing.
 
 ### 2. Local Mode (`--mode local`)
 
@@ -544,9 +548,9 @@ Spawns all nodes as separate **OS processes** on `localhost`, communicating over
 uv run distbench -c configs/echo.yaml -a echo --mode local --port-base 10000
 ```
 
-  - **Pros**: Realistic simulation of network behavior (serialization, TCP) without a cluster.
-  - **Cons**: Slower, subject to OS scheduler.
-  - **Use For**: Concurrency testing, integration testing.
+- **Pros**: Realistic simulation of network behavior (serialization, TCP) without a cluster.
+- **Cons**: Slower, subject to OS scheduler.
+- **Use For**: Concurrency testing, integration testing.
 
 ### 3. Network Mode (`--mode network`)
 
@@ -562,14 +566,88 @@ uv run distbench -c configs/echo.yaml -a echo --mode network --id n2
 # ...and so on for n3, n4...
 ```
 
-  - **Pros**: The most realistic, "production" mode.
-  - **Cons**: Requires manual startup on all machines.
-  - **Use For**: Final deployment and testing on a real cluster.
+- **Pros**: The most realistic, "production" mode.
+- **Cons**: Requires manual startup on all machines.
+- **Use For**: Final deployment and testing on a real cluster.
+
+## Docker Deployment
+
+Distbench can run in Docker containers with each node in a separate container. The system uses node IDs as hostnames in a dedicated Docker network.
+
+### Quick Start
+
+#### 1. Generate Docker Compose File
+
+Use the `dockerize.py` script to create a docker-compose configuration:
+
+```bash
+python3 dockerize.py \
+  -c configs/echo.yaml \
+  -a echo \
+  -o docker-compose.yaml
+```
+
+#### 2. Run the System
+
+```bash
+# Build and start all containers
+docker-compose up --build
+
+# Run in detached mode
+docker-compose up --build -d
+
+# View logs
+docker-compose logs -f
+
+# Stop and clean up
+docker-compose down
+```
+
+### Script Options
+
+```bash
+Required:
+  -c, --config PATH         Path to configuration YAML file
+  -a, --algorithm NAME      Algorithm name (e.g., Echo)
+
+Optional:
+  -o, --output PATH         Output path (default: docker-compose.yaml)
+  -f, --format FORMAT       Serialization: 'json'/'bincode/msgpack'
+  -t, --timeout SECONDS     Timeout in seconds (default: 30)
+  -v, --verbose             Verbosity (-v, -vv, -vvv)
+  --latency RANGE           Network latency in ms (e.g., '10-50')
+  --startup-delay MS        Startup delay in milliseconds (default: 600)
+  --report-dir PATH         Directory for storing node reports
+  --port PORT               Port number for all nodes (default: 8000)
+```
+
+### Examples
+
+**With network latency simulation:**
+
+```bash
+python3 dockerize.py \
+  -c configs/echo.yaml \
+  -a echo \
+  --latency 10-50 \
+  -o docker-compose.yaml
+```
+
+**With report collection:**
+
+```bash
+mkdir reports
+python3 dockerize.py \
+  -c configs/echo.yaml \
+  -a echo \
+  --report-dir ./reports \
+  -o docker-compose.yaml
+```
 
 ## Tips and Best Practices
 
-  - **Termination**: Always call `await self.terminate()` when your node's logic is complete. Don't rely on the timeout.
-  - **Concurrency**: You do **not** need `Mutex` or locks in your algorithm. Each node's `Algorithm` instance runs in its own single-threaded `asyncio` task.
-  - **Handlers**: Keep handlers fast and non-blocking. Use `await` for I/O (like sending messages), but avoid long-running computations.
-  - **Logging**: Use `logger.info`, `logger.debug`, and `logger.trace` liberally. Use the `-v` and `-vv` flags to control verbosity.
-  - **Start Offline**: Always develop and debug your algorithm in `offline` mode first.
+- **Termination**: Always call `await self.terminate()` when your node's logic is complete. Don't rely on the timeout.
+- **Concurrency**: You do **not** need `Mutex` or locks in your algorithm. Each node's `Algorithm` instance runs in its own single-threaded `asyncio` task.
+- **Handlers**: Keep handlers fast and non-blocking. Use `await` for I/O (like sending messages), but avoid long-running computations.
+- **Logging**: Use `logger.info`, `logger.debug`, and `logger.trace` liberally. Use the `-v` and `-vv` flags to control verbosity.
+- **Start Offline**: Always develop and debug your algorithm in `offline` mode first.
