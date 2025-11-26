@@ -59,7 +59,7 @@ class SimpleBroadcast(Algorithm):
 
         # Deliver to parent layer
         try:
-            await self.deliver_to_parent(self.id(), msg)
+            await self.deliver_message(self.id(), msg)
         except Exception as e:
             logger.info(f"SimpleBroadcast: Failed to deliver to parent: {e}")
 
@@ -76,7 +76,7 @@ class SimpleBroadcast(Algorithm):
 
         # Extract the inner AlgorithmMessage and deliver to parent layer
         try:
-            await self.deliver_to_parent(src, msg.payload)
+            await self.deliver_message(src, msg.payload)
         except Exception as e:
             logger.info(f"SimpleBroadcast: Failed to deliver to parent: {e}")
 
@@ -91,30 +91,6 @@ class SimpleBroadcast(Algorithm):
             "messages_broadcasted": str(self.messages_broadcasted),
             "max_retries": str(self.max_retries),
         }
-
-    # Helper for deliver since parent class defines deliver() as receiving from child
-    # but here we want to deliver TO parent.
-    async def deliver_to_parent(self, src: PeerId, msg_bytes: bytes) -> None:
-        if self._parent:
-            if self.format is None:
-                logger.error("SimpleBroadcast: Format not set")
-                return
-
-            from distbench.messages import AlgorithmMessage
-
-            try:
-                # Deserialize the AlgorithmMessage to get type_id and inner bytes
-                alg_msg = self.format.deserialize(msg_bytes, AlgorithmMessage)
-
-                # Construct envelope for parent
-                envelope = (alg_msg.type_id, alg_msg.bytes)
-                envelope_bytes = self.format.serialize(envelope)
-
-                # Call parent deliver directly
-                await self._parent.deliver(src, envelope_bytes, self.format)
-
-            except Exception as e:
-                logger.error(f"SimpleBroadcast: Error relaying to parent: {e}")
 
 
 @message
@@ -155,7 +131,6 @@ class SimpleBroadcastUpper(Algorithm):
             # Broadcast BroadcastSend messages
             for i, message_str in enumerate(self.messages):
                 send_msg = BroadcastSend(content=message_str.encode("utf-8"), sequence=i)
-                # broadcast.broadcast expects the object, @interface decorator will handle serialization/wrapping
                 try:
                     await self.broadcast.broadcast(send_msg)
                 except Exception as e:

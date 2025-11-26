@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from distbench.community import PeerId
 from distbench.connection import ConnectionManager
 from distbench.encoding.format import Format
-from distbench.messages import NodeMessage
+from distbench.messages import AlgorithmMessage, NodeMessage
 from distbench.signing import KeyPair, Keystore, Signed, recursive_verify
 from distbench.transport.base import Address, Transport
 
@@ -275,13 +275,13 @@ class Algorithm(ABC):
     async def deliver_message(
         self,
         src: PeerId,
-        msg: Any,
+        msg_bytes: bytes,
     ) -> Any:
         """Helper for child algorithms to deliver a message to their parent.
 
         Args:
             src: Peer ID of the sender
-            msg: The message object to deliver
+            msg_bytes: The content to deliver
 
         Returns:
             Response from parent, if any
@@ -292,10 +292,13 @@ class Algorithm(ABC):
         if self.format is None:
             raise RuntimeError("Format not set in algorithm")
 
+        try:
+            alg_msg = self.format.deserialize(msg_bytes, AlgorithmMessage)
+        except Exception as e:
+            logging.error(f"SimpleBroadcast: Error relaying to parent: {e}")
+
         # Create envelope: (msg_type_id, payload_bytes)
-        msg_type_id = msg.__class__.__name__
-        payload_bytes = self.format.serialize(msg)
-        envelope = (msg_type_id, payload_bytes)
+        envelope = (alg_msg.type_id, alg_msg.bytes)
         envelope_bytes = self.format.serialize(envelope)
 
         return await self._parent.deliver(src, envelope_bytes, self.format)

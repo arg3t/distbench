@@ -370,14 +370,14 @@ class LowerLayer(Algorithm):
     async def broadcast_message(self, src: PeerId, msg: BroadcastMessage) -> str:
         logger.info(f"LowerLayer: Received message from {src}")
 
-        # Deliver to parent (if any)
+        # Payload should be bytes
         if self._parent:
-            await self.deliver_message(src, msg)
+            await self.deliver_message(src, msg.payload)
 
         return "Acknowledged"
 ```
 
-**Note**: The child uses `self._parent` to check if it has a parent, and `self.deliver_message(src, msg)` to send messages up. The framework automatically handles serialization.
+**Note**: The child uses `self._parent` to check if it has a parent, and `self.deliver_message(src, msg)` to send messages up. The framework automatically handles deserialization in the parent.
 
 #### Step 3: Parent Intercepts Child Messages
 
@@ -472,7 +472,12 @@ The example shows:
 ```python
 @message
 class BroadcastMessage:
-    content: str
+    content: bytes
+
+
+@message
+class UpperBroadcastMessage:
+    content: bytes
 
 @distbench
 class SimpleBroadcast(Algorithm):
@@ -483,10 +488,11 @@ class SimpleBroadcast(Algorithm):
     async def broadcast_message(self, src: PeerId, msg: BroadcastMessage) -> str:
         # Deliver to parent if it exists
         if self._parent:
-            await self.deliver_message(src, msg)
+            await self.deliver_message(src, msg.bytes)
         return "Ack"
 
-    async def broadcast(self, content: str) -> None:
+    @interface
+    async def broadcast(self, content: bytes) -> None:
         """Public method for broadcasting."""
         msg = BroadcastMessage(content=content)
         for peer in self.peers.values():
@@ -501,7 +507,9 @@ class SimpleBroadcastUpper(Algorithm):
 
     async def on_start(self) -> None:
         if self.start_node:
-            await self.broadcast.broadcast("Hello from Upper Layer!")
+            await self.broadcast.broadcast(UpperBroadcastMessage(
+                content=b"Hello from upper layer!"
+            ))
 
     @handler(from_child="broadcast")
     async def on_broadcast(self, src: PeerId, msg: BroadcastMessage) -> None:
