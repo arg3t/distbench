@@ -67,6 +67,7 @@ impl Algorithm for SimpleBroadcast {
             "SimpleBroadcast starting with max_retries: {}",
             self.max_retries
         );
+        let _ = self.broadcast(&"Test".to_string()).await.unwrap();
     }
 
     async fn on_exit(&self) {

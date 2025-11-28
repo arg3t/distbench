@@ -14,7 +14,7 @@ from distbench.algorithm import Algorithm
 if TYPE_CHECKING:
     from distbench.algorithm import Algorithm
 
-ALGORITHM_REGISTRY: dict[str, type["Algorithm"]] = {}
+ALGORITHM_REGISTRY: dict[str, dict[str, type["Algorithm"]]] = {}
 __all__ = []
 
 
@@ -38,7 +38,10 @@ def _register_algorithms() -> None:
                     and obj is not Algorithm
                     and obj.__module__ == module.__name__
                 ):
-                    ALGORITHM_REGISTRY[module_name] = obj
+                    if module_name not in ALGORITHM_REGISTRY:
+                        ALGORITHM_REGISTRY[module_name] = {}
+
+                    ALGORITHM_REGISTRY[module_name][name] = obj
 
                     if name not in __all__:
                         __all__.append(name)

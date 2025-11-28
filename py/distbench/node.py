@@ -78,7 +78,7 @@ class Node(Server, Generic[T, A]):
         self.algorithm._set_total_nodes(len(community.peers) + 1)  # +1 for self
         self.algorithm._set_keypair(self.keypair)
         self.algorithm._set_format(format)
-        self.algorithm.community = community
+        self.algorithm._set_community(community)
 
         logger.trace(f"Node {node_id} initialized")
 
@@ -303,8 +303,9 @@ class Node(Server, Generic[T, A]):
         algorithm_task = asyncio.create_task(wait_for_algorithm())
 
         # Wait for completion
+        logger.trace(f"Node {self.id} waiting for algorithm...")
         done, pending = await asyncio.wait(
-            [monitor_task, serve_task, algorithm_task],
+            [serve_task, monitor_task, algorithm_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
         logger.trace(f"Node {self.id} algorithm completed, initiating shutdown")

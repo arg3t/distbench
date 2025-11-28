@@ -2,7 +2,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_quote, FnArg, ImplItem, ItemImpl, PatType, ReturnType, Type, Visibility};
+use syn::{parse_quote, FnArg, ImplItem, ItemImpl, ReturnType, Visibility};
 
 pub(crate) fn interface_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = match syn::parse::<ItemImpl>(item.clone()) {
@@ -30,12 +30,12 @@ fn transform_method(method: &mut syn::ImplItemFn) -> syn::Result<()> {
         ));
     }
 
-    // 2. Ensure &self and one Vec<u8> argument
+    // 2. Ensure &self is first argument
     let inputs = &method.sig.inputs;
-    if inputs.len() != 2 {
+    if inputs.is_empty() {
         return Err(syn::Error::new_spanned(
             &method.sig.inputs,
-            "Interface methods must have exactly one argument besides &self",
+            "Interface methods must have &self as first argument",
         ));
     }
 
@@ -50,27 +50,12 @@ fn transform_method(method: &mut syn::ImplItemFn) -> syn::Result<()> {
         }
     }
 
-    // Check second argument type
-    let arg_name = match &inputs[1] {
-        FnArg::Typed(PatType { pat, ty, .. }) => {
-            if !is_vec_u8(ty) {
-                return Err(syn::Error::new_spanned(
-                    ty,
-                    "Argument must be of type Vec<u8>",
-                ));
-            }
-            pat.clone()
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(
-                &inputs[1],
-                "Expected typed argument",
-            ));
-        }
-    };
+    // Collect all arguments after &self
+    let original_args: Vec<_> = inputs.iter().skip(2).cloned().collect();
 
     // 3. Transform signature
-    // fn package<M: ::distbench::messages::Packagable>(&self, __pkg_msg: &M) -> Result<[og_return_type], ::distbench::FormatError>
+    // Add generic parameter M: ::distbench::messages::Packagable
+    // Prepend __pkg_msg: &M to the argument list
 
     let original_ret = method.sig.output.clone();
     let ret_type = match original_ret {
@@ -80,9 +65,9 @@ fn transform_method(method: &mut syn::ImplItemFn) -> syn::Result<()> {
 
     method.sig.generics = parse_quote! { <M: ::distbench::messages::Packagable> };
 
-    // Update inputs: &self, __pkg_msg: &M
+    // Update inputs: &self, __pkg_msg: &M, [original args...]
     method.sig.inputs = parse_quote! {
-        &self, __pkg_msg: &M
+        &self, __pkg_msg: &M, #(#original_args),*
     };
 
     // Update return type
@@ -101,7 +86,7 @@ fn transform_method(method: &mut syn::ImplItemFn) -> syn::Result<()> {
             type_id: M::type_id().to_string(),
             bytes: inner_bytes,
         };
-        let #arg_name = self.__formatter.serialize(&alg_msg)?;
+        let msg = self.__formatter.serialize(&alg_msg)?;
     };
 
     if is_async {
@@ -129,24 +114,4 @@ fn transform_method(method: &mut syn::ImplItemFn) -> syn::Result<()> {
     }
 
     Ok(())
-}
-
-fn is_vec_u8(ty: &Type) -> bool {
-    if let Type::Path(type_path) = ty {
-        if type_path.path.segments.len() == 1 {
-            let segment = &type_path.path.segments[0];
-            if segment.ident == "Vec" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if args.args.len() == 1 {
-                        if let syn::GenericArgument::Type(Type::Path(inner)) = &args.args[0] {
-                            if inner.path.is_ident("u8") {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
 }

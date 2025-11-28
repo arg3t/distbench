@@ -121,7 +121,7 @@ class Algorithm(ABC):
     The framework handles node lifecycle, message routing, and communication.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         """Initialize algorithm with termination event."""
         self._terminated_event = asyncio.Event()
         self._node_id: PeerId | None = None
@@ -342,6 +342,16 @@ class Algorithm(ABC):
         self.format = format
         for child in self._children.values():
             child._set_format(format)
+
+    def _set_community(self, community: "Community") -> None:
+        """Internal method to set the community reference.
+
+        Args:
+            community: The community instance
+        """
+        self.community = community
+        for child in self._children.values():
+            child._set_community(community)
 
     async def handle(
         self,

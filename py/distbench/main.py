@@ -83,19 +83,33 @@ from distbench.encoding.msgpack_format import MsgpackFormat
 from distbench.node import Node
 from distbench.transport import Address, LocalAddress, LocalTransport
 from distbench.transport.tcp import SocketAddress, TcpAddress, TcpTransport
-from distbench.algorithms import ALGORITHM_REGISTRY
-
-ALGORITHMS = ALGORITHM_REGISTRY
+from distbench.algorithms import ALGORITHM_REGISTRY as ALGORITHMS
 
 
-def register_algorithm(name: str, cls: type[Algorithm]) -> None:
-    """Register an algorithm for use in the CLI.
+def _get_algo(algorithm_name: str) -> type[Algorithm]:
+    parts = algorithm_name.split(".")
+    if len(parts) > 2:
+        raise ValueError("Algorithm name has to be of the form <module_name>.[class_name]?")
 
-    Args:
-        name: Name to use for CLI selection
-        cls: Algorithm class
-    """
-    ALGORITHMS[name] = cls
+    module_name = parts[0]
+    class_name = parts[1] if len(parts) == 2 else None
+
+    if module_name not in ALGORITHMS:
+        raise ValueError(f"Unknown algorithm module: {module_name}")
+
+    if class_name and class_name not in ALGORITHMS[module_name]:
+        raise ValueError(f"Unknown algorithm class: {class_name} in module {module_name}")
+
+    options = ALGORITHMS[module_name]
+    if not class_name and len(options) > 1:
+        raise ValueError(
+            f"Specified ambigous algorithm. There are {len(options)} algorithms under {module_name}:\n  {list(options.keys())}"
+        )
+    elif class_name and class_name not in options:
+        raise ValueError(f"Unknown algorithm class: {class_name} in module {module_name}")
+
+    class_name = class_name or options.keys().__iter__().__next__()
+    return options[class_name]
 
 
 def _get_format(format_name: str) -> Format:
@@ -123,23 +137,25 @@ async def _run_nodes(
         startup_delay: Delay in milliseconds before starting nodes
     """
     logger = logging.getLogger(__name__)
-    tasks = [asyncio.create_task(node.start(stop_event, startup_delay)) for node in nodes]
+
+    async def timeout_shutdown() -> None:
+        await asyncio.sleep(timeout)
+        logger.warning(f"Timeout of {timeout} seconds reached, stopping nodes")
+        stop_event.set()
+        return None
+
+    tasks = [asyncio.create_task(timeout_shutdown())] + [
+        asyncio.create_task(node.start(stop_event, startup_delay)) for node in nodes
+    ]
 
     # Wait with timeout
     try:
-        results = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True), timeout=timeout
-        )
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         # Check for exceptions in node tasks
         for res in results:
             if isinstance(res, Exception):
                 logger.error(f"Node task failed: {res}", exc_info=res)
         logger.info("All nodes completed")
-    except asyncio.TimeoutError:
-        logger.warning(f"Timeout after {timeout} seconds, stopping nodes")
-        stop_event.set()
-        # Give nodes a chance to stop gracefully
-        await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)
         stop_event.set()
@@ -201,15 +217,12 @@ async def run_offline(
             transport=transport,
         )
 
+        algo_config = extract_algorithm_config(node_config)
         peers = {
             pid: Peer(pid, community.connection(pid), format_impl, community)  # type: ignore
-            for pid, conn in community.connections.items()
+            for pid, conn in community.get_neighbours().items()
         }
-
-        algo_config = extract_algorithm_config(node_config)
-        if algorithm_name not in ALGORITHMS:
-            raise ValueError(f"Unknown algorithm: {algorithm_name}")
-        algorithm = ALGORITHMS[algorithm_name](algo_config, peers)
+        algorithm = _get_algo(algorithm_name)(algo_config, peers)
 
         node = Node(
             node_id=node_id,
@@ -348,15 +361,12 @@ async def run_local(
             transport=transport,
         )
 
+        algo_config = extract_algorithm_config(node_config)
         peers = {
             pid: Peer(pid, community.connection(pid), format_impl, community)  # type: ignore
-            for pid, conn in community.connections.items()
+            for pid, conn in community.get_neighbours().items()
         }
-
-        algo_config = extract_algorithm_config(node_config)
-        if algorithm_name not in ALGORITHMS:
-            raise ValueError(f"Unknown algorithm: {algorithm_name}")
-        algorithm = ALGORITHMS[algorithm_name](algo_config, peers)
+        algorithm = _get_algo(algorithm_name)(algo_config, peers)
 
         node = Node(
             node_id=node_id,
@@ -445,15 +455,12 @@ async def run_network(
         transport=transport,
     )
 
+    algo_config = extract_algorithm_config(node_config)
     peers = {
         pid: Peer(pid, community.connection(pid), format_impl, community)  # type: ignore
-        for pid, conn in community.connections.items()
+        for pid, conn in community.get_neighbours().items()
     }
-
-    algo_config = extract_algorithm_config(node_config)
-    if algorithm_name not in ALGORITHMS:
-        raise ValueError(f"Unknown algorithm: {algorithm_name}")
-    algorithm = ALGORITHMS[algorithm_name](algo_config, peers)
+    algorithm = _get_algo(algorithm_name)(algo_config, peers)
 
     node = Node(
         node_id=node_id,

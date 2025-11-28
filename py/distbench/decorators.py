@@ -186,7 +186,7 @@ def interface(func: Callable[..., Any]) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(func):
 
         @functools.wraps(func)
-        async def async_wrapper(self: Any, msg: Any) -> Any:
+        async def async_wrapper(self: Any, msg: Any, *args, **kwargs) -> Any:
             if not hasattr(self, "format") or self.format is None:
                 raise RuntimeError("Algorithm format not initialized")
 
@@ -202,18 +202,16 @@ def interface(func: Callable[..., Any]) -> Callable[..., Any]:
 
             alg_msg = AlgorithmMessage(type_id=type_id, bytes=inner_bytes)
 
-            # 3. Serialize envelope
             outer_bytes = self.format.serialize(alg_msg)
 
-            # 4. Call original
-            return await func(self, outer_bytes)
+            return await func(self, outer_bytes, *args, **kwargs)
 
         return async_wrapper
 
     else:
 
         @functools.wraps(func)
-        def sync_wrapper(self: Any, msg: Any) -> Any:
+        def sync_wrapper(self: Any, msg: Any, *args, **kwargs) -> Any:
             if not hasattr(self, "format") or self.format is None:
                 raise RuntimeError("Algorithm format not initialized")
 
@@ -233,7 +231,7 @@ def interface(func: Callable[..., Any]) -> Callable[..., Any]:
             outer_bytes = self.format.serialize(alg_msg)
 
             # 4. Call original
-            return func(self, outer_bytes)
+            return func(self, outer_bytes, *args, **kwargs)
 
         return sync_wrapper
 
@@ -278,7 +276,10 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
             peers: Dictionary mapping peer IDs to Peer proxies
         """
         # Call parent class __init__
-        Algorithm.__init__(self)
+        if self.old_init:
+            self.old_init(config, peers)
+        else:
+            Algorithm.__init__(self)
 
         # Initialize config fields from dict
         for name, field_obj in config_fields.items():
@@ -317,6 +318,7 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
             with suppress(TypeError):
                 original_init(self, config, peers)
 
+    cls.old_init = cls.__init__ if hasattr(cls, "__init__") else None
     cls.__init__ = new_init  # type: ignore
     cls.__config_fields__ = config_fields  # type: ignore
 
