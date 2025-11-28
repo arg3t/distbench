@@ -80,6 +80,7 @@ pub(crate) fn message_impl(item: TokenStream) -> TokenStream {
 
     let packagable_impl = quote! {
         impl ::distbench::messages::Packagable for #struct_name {
+            type DeserType = Self;
             fn type_id() -> &'static str {
                 stringify!(#struct_name)
             }

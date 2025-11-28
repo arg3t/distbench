@@ -41,22 +41,40 @@ pub struct AlgorithmMessage {
 }
 
 /// A trait for any type that can be packaged into an AlgorithmMessage.
-pub trait Packagable: serde::Serialize + for<'de> serde::Deserialize<'de> {
+pub trait Packagable: serde::Serialize {
+    type DeserType: for<'de> serde::Deserialize<'de>;
     /// Returns the type identifier for this message.
     fn type_id() -> &'static str;
 }
 
-impl Packagable for String {
-    fn type_id() -> &'static str {
-        "String"
-    }
+macro_rules! impl_packagable_with_name {
+    ($($t:ty => $name:ty),*) => {
+        $(
+            impl Packagable for $t {
+                type DeserType = $name;
+                fn type_id() -> &'static str {
+                    stringify!($name)
+                }
+            }
+        )*
+    };
 }
 
-impl Packagable for Vec<u8> {
-    fn type_id() -> &'static str {
-        "Vec<u8>"
-    }
+macro_rules! impl_packagable_full {
+    ($($t:ty),*) => {
+        $(
+            impl_packagable_with_name!($t => $t);
+            impl_packagable_with_name!(Vec<$t> => Vec<$t>);
+
+        )*
+    };
 }
+
+impl_packagable_full!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, String);
+impl_packagable_with_name!(
+    &str => String,
+    str => String
+);
 
 impl AlgorithmMessage {
     pub fn to_string(&self) -> String {
