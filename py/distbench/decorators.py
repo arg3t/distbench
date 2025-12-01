@@ -265,9 +265,6 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
             elif field_obj.metadata.get("child"):
                 child_fields[name] = field_obj
 
-    # Store original __init__ if it exists
-    original_init = cls.__init__ if hasattr(cls, "__init__") else None
-
     def new_init(self: Any, config: dict[str, Any], peers: dict[PeerId, Peer]) -> None:  # type: ignore
         """Initialize algorithm with config and peers.
 
@@ -276,8 +273,8 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
             peers: Dictionary mapping peer IDs to Peer proxies
         """
         # Call parent class __init__
-        if self.old_init:
-            self.old_init(config, peers)
+        if self.original_init:
+            self.original_init(config, peers)
         else:
             Algorithm.__init__(self)
 
@@ -310,15 +307,8 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
         # Set peers
         self.peers = peers
 
-        # Call original init if it existed (but not if it's just Algorithm.__init__)
-        if original_init and original_init != Algorithm.__init__:
-            # Try calling with config/peers, but ignore if it doesn't accept them
-            from contextlib import suppress
-
-            with suppress(TypeError):
-                original_init(self, config, peers)
-
-    cls.old_init = cls.__init__ if hasattr(cls, "__init__") else None
+    # Store original __init__ if it exists
+    cls.original_init = cls.__init__ if hasattr(cls, "__init__") else None
     cls.__init__ = new_init  # type: ignore
     cls.__config_fields__ = config_fields  # type: ignore
 

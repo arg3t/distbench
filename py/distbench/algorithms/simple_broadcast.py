@@ -39,6 +39,9 @@ class SimpleBroadcast(Algorithm):
     # State
     messages_broadcasted: int = 0
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
     @interface
     async def broadcast(self, msg: bytes) -> None:
         """Broadcast a message to all peers and deliver to parent."""
@@ -119,6 +122,9 @@ class SimpleBroadcastUpper(Algorithm):
 
     # Child algorithm
     broadcast: SimpleBroadcast = child_algorithm(SimpleBroadcast)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
 
     async def on_start(self) -> None:
         logger.info(
