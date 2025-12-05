@@ -47,7 +47,7 @@ LOG_LEVEL_COLORS = {
 }
 
 # Import context variable
-from distbench.context import current_node_id
+from distbench.context import current_node_id  # noqa: E402
 
 
 class NodeContextFormatter(logging.Formatter):
@@ -74,16 +74,16 @@ class NodeContextFormatter(logging.Formatter):
         return super().format(record)
 
 
-from distbench.algorithm import Algorithm, Peer
-from distbench.community import Community, PeerId
-from distbench.config import extract_algorithm_config, extract_neighbours, load_config
-from distbench.encoding.format import Format
-from distbench.encoding.json_format import JsonFormat
-from distbench.encoding.msgpack_format import MsgpackFormat
-from distbench.node import Node
-from distbench.transport import Address, LocalAddress, LocalTransport
-from distbench.transport.tcp import SocketAddress, TcpAddress, TcpTransport
-from distbench.algorithms import ALGORITHM_REGISTRY as ALGORITHMS
+from distbench.algorithm import Algorithm, Peer  # noqa: E402
+from distbench.algorithms import ALGORITHM_REGISTRY as ALGORITHMS  # noqa: E402
+from distbench.community import Community, PeerId  # noqa: E402
+from distbench.config import extract_algorithm_config, extract_neighbours, load_config  # noqa: E402
+from distbench.encoding.format import Format  # noqa: E402
+from distbench.encoding.json_format import JsonFormat  # noqa: E402
+from distbench.encoding.msgpack_format import MsgpackFormat  # noqa: E402
+from distbench.node import Node  # noqa: E402
+from distbench.transport import Address, LocalAddress, LocalTransport  # noqa: E402
+from distbench.transport.tcp import SocketAddress, TcpAddress, TcpTransport  # noqa: E402
 
 
 def _get_algo(algorithm_name: str) -> type[Algorithm]:
@@ -102,8 +102,9 @@ def _get_algo(algorithm_name: str) -> type[Algorithm]:
 
     options = ALGORITHMS[module_name]
     if not class_name and len(options) > 1:
+        options_list = "\n".join([f"  - {module_name}.{name}" for name in options])
         raise ValueError(
-            f"Specified ambigous algorithm. There are {len(options)} algorithms under {module_name}:\n  {list(options.keys())}"
+            f"Specified ambigous algorithm. There are {len(options)} algorithms under {module_name}:\n{options_list}"
         )
     elif class_name and class_name not in options:
         raise ValueError(f"Unknown algorithm class: {class_name} in module {module_name}")
@@ -129,7 +130,6 @@ async def _run_nodes(
     startup_delay: int = 0,
 ) -> None:
     """Start and wait for a list of nodes to complete.
-
     Args:
         nodes: List of nodes to run
         timeout: Maximum runtime in seconds
@@ -138,28 +138,30 @@ async def _run_nodes(
     """
     logger = logging.getLogger(__name__)
 
-    async def timeout_shutdown() -> None:
-        await asyncio.sleep(timeout)
+    # Create node tasks
+    node_tasks = [asyncio.create_task(node.start(stop_event, startup_delay)) for node in nodes]
+
+    try:
+        # Wait for all node tasks with timeout
+        await asyncio.wait_for(asyncio.gather(*node_tasks, return_exceptions=True), timeout=timeout)
+
+        # Check for exceptions in node tasks
+        for task in node_tasks:
+            if task.done() and task.exception() is not None:
+                logger.error(f"Node task failed: {task.exception()}", exc_info=task.exception())
+
+        logger.info("All nodes completed")
+
+    except asyncio.TimeoutError:
         logger.warning(f"Timeout of {timeout} seconds reached, stopping nodes")
         stop_event.set()
-        return None
+        report_tasks = [asyncio.create_task(node.generate_report()) for node in nodes]
+        await asyncio.gather(*report_tasks, return_exceptions=True)
 
-    tasks = [asyncio.create_task(timeout_shutdown())] + [
-        asyncio.create_task(node.start(stop_event, startup_delay)) for node in nodes
-    ]
-
-    # Wait with timeout
-    try:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        # Check for exceptions in node tasks
-        for res in results:
-            if isinstance(res, Exception):
-                logger.error(f"Node task failed: {res}", exc_info=res)
-        logger.info("All nodes completed")
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)
         stop_event.set()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*node_tasks, return_exceptions=True)
 
 
 async def run_offline(
@@ -608,7 +610,7 @@ def main(
 
     # Validate node_id for network mode
     if mode == "network" and not node_id:
-        click.echo("Error: --id is required for --mode network", err=True)
+        click.echo("--id is required for --mode network", err=True)
         sys.exit(1)
 
     if report_dir:
@@ -619,9 +621,7 @@ def main(
         if "-" in latency:
             parts = latency.split("-")
             if len(parts) != 2:
-                click.echo(
-                    f"Error: Invalid latency format '{latency}'. Expected 'min-max'", err=True
-                )
+                click.echo(f"Invalid latency format '{latency}'. Expected 'min-max'", err=True)
                 sys.exit(1)
             latency_range = (int(parts[0]), int(parts[1]))
         else:
@@ -629,7 +629,7 @@ def main(
             val = int(latency)
             latency_range = (val, val)
     except ValueError as e:
-        click.echo(f"Error: Invalid latency format '{latency}': {e}", err=True)
+        click.echo(f"Invalid latency format '{latency}': {e}", err=True)
         sys.exit(1)
 
     # Run the appropriate mode
@@ -656,7 +656,7 @@ def main(
         else:
             # mode == "network"
             if node_id is None:  # Should be caught by click, but check again
-                click.echo("Error: --id is required for --mode network", err=True)
+                click.echo("--id is required for --mode network", err=True)
                 sys.exit(1)
             asyncio.run(
                 run_network(
@@ -674,7 +674,7 @@ def main(
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Interrupted by user")
     except Exception as e:
-        logging.getLogger(__name__).error(f"Error: {e}", exc_info=verbose > 0)
+        logging.getLogger(__name__).error(f"{e}", exc_info=verbose > 0)
         sys.exit(1)
 
 

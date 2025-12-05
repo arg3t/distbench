@@ -12,7 +12,6 @@ import contextlib
 import logging
 import struct
 from dataclasses import dataclass
-from typing import cast
 
 from distbench.transport.base import Address, Connection, Server, Transport
 

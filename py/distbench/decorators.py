@@ -300,11 +300,11 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
             child_config = config.get(name, {})
 
             # Create child instance
-            child_instance = child_cls(child_config, peers)
+            child_peers = {peer_id: peer.for_child(name) for peer_id, peer in peers.items()}
+            child_instance = child_cls(child_config, child_peers)
             self.register_child(name, child_instance)
             setattr(self, name, child_instance)
 
-        # Set peers
         self.peers = peers
 
     # Store original __init__ if it exists
@@ -467,7 +467,7 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
     cls.handle = handle  # type: ignore
 
     # Generate deliver method
-    async def deliver(
+    async def _deliver(
         self: Any,
         src: PeerId,
         msg_bytes: bytes,
@@ -503,7 +503,7 @@ def distbench(cls: type[Algorithm]) -> type[Algorithm]:
         logging.warning(f"No handler for delivered message: {msg_type_id}")
         return None
 
-    cls.deliver = deliver  # type: ignore
+    cls._deliver = _deliver  # type: ignore
 
     # Generate Peer methods dynamically
     def create_peer_method(

@@ -1,7 +1,5 @@
 # Distbench (Python Port)
 
-> A Python framework for implementing and testing distributed algorithms, ported from the original Rust version.
-
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)
 
@@ -9,17 +7,17 @@ This project is a Python port of the `distbench` framework, designed for the lab
 
 It handles the infrastructure (networking, message passing, node lifecycle) so you can focus on algorithm logic, using modern `asyncio`, type hints, and simple decorators.
 
-## ✨ Features
+## Features
 
-- 🎯 **Clean API** - Python decorators (`@distbench`, `@message`) eliminate boilerplate.
-- 🔌 **Pluggable Transports** - In-memory (`offline`) or TCP sockets (`local`, `network`).
-- 📦 **Multiple Formats** - JSON (human-readable) or `msgpack` (fast, binary).
-- 🔄 **Three Execution Modes** - **offline** (single-process), **local** (multi-process on localhost), **network** (distributed).
-- 🔐 **Automatic Signing** - Built-in Ed25519 signatures via `Signed[T]`, with automatic verification of all incoming messages.
-- ⚡ **Automatic Lifecycle** - Node synchronization (key-sharing, startup) is handled for you.
-- 🏗️ **Algorithm Layering** - Compose complex protocols from simpler building blocks using child algorithms.
+- Clean API - Python decorators (`@distbench`, `@message`) eliminate boilerplate.
+- Pluggable Transports - In-memory (`offline`) or TCP sockets (`local`, `network`).
+- Multiple Formats - JSON (human-readable) or `msgpack` (fast, binary).
+- Three Execution Modes - **offline** (single-process), **local** (multi-process on localhost), **network** (distributed).
+- Automatic Signing - Built-in Ed25519 signatures via `Signed[T]`, with automatic verification of all incoming messages.
+- Automatic Lifecycle - Node synchronization (key-sharing, startup) is handled for you.
+- Algorithm Layering - Compose complex protocols from simpler building blocks using child algorithms.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -51,7 +49,7 @@ Run the Chang-Roberts leader election algorithm in `offline` mode (single proces
 uv run distbench -c configs/chang_roberts.yaml -a chang_roberts --mode offline -v
 ```
 
-## 📚 Example Algorithms
+## Example Algorithms
 
 The framework automatically discovers any algorithm in the `distbench/algorithms/` directory.
 
@@ -60,11 +58,11 @@ The framework automatically discovers any algorithm in the `distbench/algorithms
 - **[message_chain](distbench/algorithms/message_chain.py)** - Demonstrates cryptographic signatures and message forwarding.
 - **[simple_broadcast](distbench/algorithms/simple_broadcast.py)** - Demonstrates algorithm layering with parent-child communication.
 
-## 📖 Documentation
+## Documentation
 
 - **[Implementation Guide](GUIDE.md)** - Learn how to implement your own algorithms in Python.
 
-## 🎯 Usage
+## Usage
 
 ### Command-Line Options
 
@@ -114,9 +112,9 @@ n3:
 
 **Key Feature**: An empty `neighbours: []` list creates a **fully connected topology**, automatically connecting the node to all other nodes defined in the file.
 
-## 🔧 Development
+## Development
 
-This project uses `ruff` for linting/formatting and `mypy` for type checking.
+This project uses `ruff` for linting/formatting
 
 ```bash
 # Run the linter
@@ -124,12 +122,9 @@ uv run ruff check .
 
 # Format all code
 uv run ruff format .
-
-# Run the static type checker
-uv run mypy .
 ```
 
-## ↔️ Comparison with Rust Version
+## Comparison with Rust Version
 
 This port maintains the same core architecture but adapts it to be idiomatic Python.
 
@@ -143,6 +138,6 @@ This port maintains the same core architecture but adapts it to be idiomatic Pyt
 | **Concurrency**     | Multi-threaded (`Mutex`) | Single-threaded (`asyncio`)  |
 | **Verification**    | Manual (in handler)      | **Automatic** (by framework) |
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License.

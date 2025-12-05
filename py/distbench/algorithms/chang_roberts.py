@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import random
-from typing import Any, Tuple
+from typing import Any
 
 from distbench.algorithm import Algorithm, Peer
 from distbench.community import PeerId
@@ -37,15 +37,15 @@ class ChangRoberts(Algorithm):
         """Initialize Chang-Roberts state."""
         super().__init__()
         self.leader: int | None = None
-        self._next_peer_tuple: Tuple[PeerId, Peer] | None = None
+        self._next_peer_tuple: tuple[PeerId, Peer] | None = None
 
-    def _get_next_peer_tuple(self) -> Tuple[PeerId, Peer]:
+    def _get_next_peer_tuple(self) -> tuple[PeerId, Peer]:
         """Finds the next peer in the logical (sorted-ID) ring."""
         if self._next_peer_tuple:
             return self._next_peer_tuple
 
         # Get all node IDs (peers + self) and sort them
-        all_ids = [str(pid) for pid in self.peers.keys()] + [str(self.id())]
+        all_ids = [str(pid) for pid in self.peers] + [str(self.id())]
         all_ids.sort()
 
         # Find our index

@@ -40,7 +40,7 @@ impl NodeSet {
         self.0.contains_key(id)
     }
 
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.0.len()
     }
 
@@ -140,7 +140,7 @@ where
 #[derive(Serialize)]
 struct FullReport {
     elapsed_time: u64,
-    messages_received: u64,
+    messages_received: HashMap<String, u64>,
     bytes_received: u64,
     algorithm: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -149,7 +149,7 @@ struct FullReport {
 
 struct AlgoMetrics {
     start_stamp: AtomicU64,
-    messages_received: AtomicU64,
+    messages_received: DashMap<String, u64>,
     bytes_received: AtomicU64,
 }
 
@@ -157,7 +157,7 @@ impl AlgoMetrics {
     pub fn new() -> Self {
         Self {
             start_stamp: AtomicU64::new(0),
-            messages_received: AtomicU64::new(0),
+            messages_received: DashMap::new(),
             bytes_received: AtomicU64::new(0),
         }
     }
@@ -176,9 +176,16 @@ impl AlgoMetrics {
     ///
     /// Increments the `messages_received` count by 1 and
     /// `bytes_received` by the length of the data slice.
-    pub fn received(&self, data: &[u8]) {
+    pub fn received(&self, algorithm_name: String, path: &[String], data: &[u8]) {
         // Increment message count by 1
-        self.messages_received.fetch_add(1, Ordering::Relaxed);
+        self.messages_received
+            .entry(if path.is_empty() {
+                algorithm_name
+            } else {
+                format!("{}.{}", algorithm_name, path.join("."))
+            })
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
 
         // Increment byte count by the length of the slice.
         // We cast data.len() (which is usize) to u64.
@@ -218,20 +225,27 @@ impl AlgoMetrics {
             .unwrap_or_default()
             .as_secs();
 
+        let messages_received = self
+            .messages_received
+            .iter()
+            .map(|entry| (entry.key().clone(), *entry.value()))
+            .collect();
+        let bytes_received = self.bytes_received.load(Ordering::Relaxed);
+
+        trace!(
+            "AlgoMetrics::report_json - Report: {:?} messages, {} bytes, {} seconds elapsed",
+            messages_received,
+            bytes_received,
+            elapsed_time
+        );
+
         let report = FullReport {
             elapsed_time,
-            messages_received: self.messages_received.load(Ordering::Relaxed),
-            bytes_received: self.bytes_received.load(Ordering::Relaxed),
+            messages_received,
+            bytes_received,
             algorithm: algorithm.name().to_string(),
             details: details_map,
         };
-
-        trace!(
-            "AlgoMetrics::report_json - Report: {} messages, {} bytes, {} seconds elapsed",
-            report.messages_received,
-            report.bytes_received,
-            report.elapsed_time
-        );
 
         serde_json::to_string(&report).expect("Failed to serialize metrics report")
     }
@@ -480,7 +494,6 @@ where
     /// # Arguments
     ///
     /// * `stop_signal` - A signal that can be used to stop the node externally
-    /// * `report_folder` - A folder to write the report to if provided
     ///
     /// # Returns
     ///
@@ -579,7 +592,8 @@ where
                         message: "Node is still not in the Starting state".to_string(),
                     });
                 }
-                self.metrics.received(&msg);
+                self.metrics
+                    .received(self.algo.name().to_string(), &path, &msg);
 
                 self.algo
                     .handle(peer_id, msg_type, msg, &path)

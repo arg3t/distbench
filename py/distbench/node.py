@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import Counter
 from typing import Generic, TypeVar
 
 from distbench.algorithm import Algorithm
@@ -70,7 +71,7 @@ class Node(Server, Generic[T, A]):
         # Metrics tracking
         self._start_time: float | None = None
         self._end_time: float | None = None
-        self._messages_received = 0
+        self._messages_received = Counter()
         self._bytes_received = 0
 
         # Initialize algorithm with node info
@@ -205,7 +206,7 @@ class Node(Server, Generic[T, A]):
             return None
 
         try:
-            msg_type, type_id, payload = NodeMessage.deserialize(msg)
+            msg_type, type_id, payload, path = NodeMessage.deserialize(msg)
         except Exception as e:
             logger.error(f"Failed to deserialize message: {e}")
             return None
@@ -248,11 +249,12 @@ class Node(Server, Generic[T, A]):
                 return None
 
             # Track metrics for algorithm messages
-            self._messages_received += 1
+            self._messages_received[".".join([self.algorithm.name, *path])] += 1
             self._bytes_received += len(payload)
+            logger.trace(f"Received algorithm message: {type_id} from {peer_id} with path: {path}")
 
             try:
-                return await self.algorithm.handle(peer_id, type_id, payload, self.format)
+                return await self.algorithm.handle(peer_id, type_id, payload, self.format, path)
             except Exception as e:
                 logger.error(f"Error handling algorithm message: {e}", exc_info=True)
                 return None
@@ -322,7 +324,10 @@ class Node(Server, Generic[T, A]):
         await self.community.close_all()
 
         logger.trace(f"Node {self.id} stopped")
+        self._end_time = time.time()
+        await self.generate_report()
 
+    async def generate_report(self) -> None:
         # Generate and display combined metrics report
         try:
             # Calculate elapsed time
@@ -345,13 +350,14 @@ class Node(Server, Generic[T, A]):
                 "details": algorithm_report or {},
             }
 
-            metrics_json = json.dumps(metrics, separators=(",", ":"))
             if self.report_dir:
+                # Write compact JSON to file
+                metrics_json = json.dumps(metrics, separators=(",", ":"))
                 report_path = f"{self.report_dir}/{self.id}.json"
 
                 with open(report_path, "a") as f:
                     f.write(metrics_json + "\n")
             else:
-                logger.info(f"Algorithm report for {self.id}: {metrics_json}")
+                logger.info(f"Algorithm report for {self.id}: {metrics}")
         except Exception as e:
             logger.warning(f"Failed to generate algorithm report: {e}")

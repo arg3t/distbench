@@ -33,10 +33,7 @@ class DelayedConnection(Connection, Generic[T, A]):
     async def _apply_delay(self) -> None:
         """Apply random delay from the configured range."""
         min_delay, max_delay = self.delay_range
-        if min_delay == max_delay:
-            delay_ms = min_delay
-        else:
-            delay_ms = random.randint(min_delay, max_delay)
+        delay_ms = min_delay if min_delay == max_delay else random.randint(min_delay, max_delay)
 
         if delay_ms > 0:
             logger.trace(f"Delaying message by {delay_ms}ms")

@@ -7,8 +7,8 @@ This module provides the core abstractions for implementing distributed algorith
 
 import asyncio
 import logging
-from abc import ABC
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from warnings import deprecated
 
 from distbench.community import PeerId
 from distbench.connection import ConnectionManager
@@ -38,6 +38,7 @@ class Peer(Generic[A, TR]):
         conn_manager: ConnectionManager[TR, A],
         format: Format,
         keystore: Keystore | None = None,
+        path: list[str] = None,
     ) -> None:
         """Initialize a peer proxy.
 
@@ -51,6 +52,7 @@ class Peer(Generic[A, TR]):
         self.conn_manager = conn_manager
         self.format = format
         self.keystore = keystore
+        self.path = [] if path is None else path
         self._handlers: dict[str, type[Any]] = {}
 
     def _register_handler(self, name: str, msg_class: type[Any]) -> None:
@@ -71,7 +73,6 @@ class Peer(Generic[A, TR]):
         msg: Any,
         expect_response: bool = False,
         response_type: type[Any] | None = None,
-        path: list[str] | None = None,
     ) -> Any:
         """Generic message sender.
 
@@ -89,7 +90,7 @@ class Peer(Generic[A, TR]):
         payload = self.format.serialize(msg)
 
         # Wrap in node message
-        node_msg = NodeMessage.algorithm(msg_type, payload)
+        node_msg = NodeMessage.algorithm(msg_type, payload, self.path)
 
         if not expect_response:
             await self.conn_manager.cast(node_msg)
@@ -113,8 +114,14 @@ class Peer(Generic[A, TR]):
 
         return response
 
+    def for_child(self, child_name: str) -> "Peer[A, TR]":
+        new_peer = Peer(
+            self.peer_id, self.conn_manager, self.format, self.keystore, [*self.path, child_name]
+        )
+        return new_peer
 
-class Algorithm(ABC):
+
+class Algorithm:
     """Base class for distributed algorithms.
 
     Algorithms should extend this class and implement the required methods.
@@ -133,7 +140,6 @@ class Algorithm(ABC):
         # Layering support
         self._children: dict[str, Algorithm] = {}
         self._parent: Algorithm | None = None
-        self._name: str = ""
 
     async def on_start(self) -> None:  # noqa: B027
         """Called when all nodes are ready and synchronized.
@@ -185,6 +191,7 @@ class Algorithm(ABC):
         """
         return self._terminated_event.is_set()
 
+    @property
     def id(self) -> PeerId:
         """Get this node's unique identifier.
 
@@ -198,6 +205,7 @@ class Algorithm(ABC):
             raise RuntimeError("Node ID not set")
         return self._node_id
 
+    @property
     def N(self) -> int:  # noqa: N802
         """Get total number of nodes in the system.
 
@@ -210,6 +218,30 @@ class Algorithm(ABC):
         if self._total_nodes == 0:
             raise RuntimeError("Total nodes not set")
         return self._total_nodes
+
+    @property
+    def nodes(self) -> set[PeerId]:
+        """Get a set of all peer IDs in the community."""
+        if self.community is None:
+            raise RuntimeError("Community not set")
+        return self.community.nodes()
+
+    @property
+    def name(self) -> str:
+        """Get the name of the algorithm."""
+        return self.__class__.__name__
+
+    def peer(self, peer_id: PeerId) -> Peer[A, TR] | None:
+        """
+        Get a peer by ID.
+
+        Args:
+            peer_id: ID of the peer
+
+        Returns:
+            Peer object if found, None otherwise
+        """
+        return self._peers.get(peer_id)
 
     def sign(self, message: T) -> Signed[T]:
         """Create a cryptographically signed message.
@@ -252,7 +284,7 @@ class Algorithm(ABC):
         if self.format:
             child._set_format(self.format)
 
-    async def deliver(
+    async def _deliver(
         self,
         src: PeerId,
         msg_bytes: bytes,
@@ -272,7 +304,24 @@ class Algorithm(ABC):
         # to dispatch to handlers marked with @handler(from_child=...)
         raise NotImplementedError("deliver() should be implemented by @distbench decorator")
 
+    @deprecated("Use deliver() instead")
     async def deliver_message(
+        self,
+        src: PeerId,
+        msg_bytes: bytes,
+    ) -> Any:
+        """Wrapper around deliver(), for backwards compatibility.
+
+        Args:
+            src: Peer ID of the sender
+            msg_bytes: The content to deliver
+
+        Returns:
+            Response from parent, if any
+        """
+        await self.deliver(src, msg_bytes)
+
+    async def deliver(
         self,
         src: PeerId,
         msg_bytes: bytes,
@@ -301,7 +350,7 @@ class Algorithm(ABC):
         envelope = (alg_msg.type_id, alg_msg.bytes)
         envelope_bytes = self.format.serialize(envelope)
 
-        return await self._parent.deliver(src, envelope_bytes, self.format)
+        return await self._parent._deliver(src, envelope_bytes, self.format)
 
     def _set_node_id(self, node_id: PeerId) -> None:
         """Internal method to set the node ID.

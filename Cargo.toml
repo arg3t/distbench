@@ -7,7 +7,7 @@ members = [
 [package]
 name = "runner"
 authors = ["Yigit Colakoglu <root@yigit.run>"]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [lib]

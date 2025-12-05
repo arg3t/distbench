@@ -3,9 +3,8 @@
 Demonstrates forwarding and signing messages along a path.
 """
 
-import asyncio
 import logging
-from typing import Any, List
+from typing import Any
 
 from distbench.algorithm import Algorithm
 from distbench.community import PeerId
@@ -24,14 +23,14 @@ class ChainMessage:
     node_name: str  # The node that created this specific hop
 
     def __str__(self) -> str:
-        return f"Hop #{self.hop_count} by {self.node_name} " f"(value: '{self.original_value}')"
+        return f"Hop #{self.hop_count} by {self.node_name} (value: '{self.original_value}')"
 
 
 @message
 class ChainBundle:
     """A container message that holds a vector of signed messages."""
 
-    chain: List[Signed[ChainMessage]]
+    chain: list[Signed[ChainMessage]]
 
 
 @distbench
@@ -65,7 +64,7 @@ class MessageChain(Algorithm):
                 ChainMessage(
                     hop_count=0,
                     original_value=self.initial_value,
-                    node_name=str(self.id()),
+                    node_name=str(self.id),
                 )
             )
 
@@ -128,7 +127,7 @@ class MessageChain(Algorithm):
             ChainMessage(
                 hop_count=last_msg.hop_count + 1,
                 original_value=first_msg.original_value,
-                node_name=str(self.id()),
+                node_name=str(self.id),
             )
         )
 

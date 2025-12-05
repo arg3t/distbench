@@ -71,7 +71,7 @@ class NodeMessage:
         return msgpack.packb([MessageType.FINISHED.value], use_bin_type=True)  # type: ignore
 
     @staticmethod
-    def algorithm(msg_type: str, payload: bytes) -> bytes:
+    def algorithm(msg_type: str, payload: bytes, path: list[str]) -> bytes:
         """Serialize an algorithm-specific message.
 
         Args:
@@ -82,11 +82,11 @@ class NodeMessage:
             Serialized message bytes
         """
         return msgpack.packb(  # type: ignore
-            [MessageType.ALGORITHM.value, msg_type, payload], use_bin_type=True
+            [MessageType.ALGORITHM.value, msg_type, payload, path], use_bin_type=True
         )
 
     @staticmethod
-    def deserialize(data: bytes) -> tuple[MessageType, str | None, bytes | None]:
+    def deserialize(data: bytes) -> tuple[MessageType, str | None, bytes | None, list[str]]:
         """Deserialize a node message.
 
         Args:
@@ -98,6 +98,7 @@ class NodeMessage:
             - type_id: For ALGORITHM messages, the algorithm message type ID
             - payload: For ALGORITHM messages, the algorithm message payload;
                       For PUBKEY messages, the public key bytes
+            - path: For ALGORITHM messages, the path to the algorithm
 
         Raises:
             ValueError: If the message format is invalid
@@ -110,12 +111,12 @@ class NodeMessage:
         msg_type = MessageType(unpacked[0])
 
         if msg_type == MessageType.ALGORITHM:
-            if len(unpacked) != 3:
-                raise ValueError("Algorithm message must have 3 elements")
-            return msg_type, unpacked[1], unpacked[2]
+            if len(unpacked) != 4:
+                raise ValueError("Algorithm message must have 4 elements")
+            return msg_type, unpacked[1], unpacked[2], unpacked[3]
         elif msg_type == MessageType.PUBKEY:
             if len(unpacked) != 2:
                 raise ValueError("Pubkey message must have 2 elements")
-            return msg_type, None, unpacked[1]
+            return msg_type, None, unpacked[1], None
         else:
-            return msg_type, None, None
+            return msg_type, None, None, None

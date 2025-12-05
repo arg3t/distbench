@@ -117,7 +117,11 @@ class ConnectionManager(Generic[T, A]):
             return await conn.send(msg)
         except Exception as e:
             # Invalidate connection on error
-            logger.warning(f"Send to {self.address} failed, invalidating connection: {e}")
+            # Use debug level for "Connection is closed" (expected during shutdown)
+            if "Connection is closed" in str(e):
+                logger.debug(f"Send to {self.address} failed, invalidating connection: {e}")
+            else:
+                logger.warning(f"Send to {self.address} failed, invalidating connection: {e}")
             async with self.lock:
                 self.connection = None
             raise
@@ -141,7 +145,11 @@ class ConnectionManager(Generic[T, A]):
             await conn.cast(msg)
         except Exception as e:
             # Invalidate connection on error
-            logger.warning(f"Cast to {self.address} failed, invalidating connection: {e}")
+            # Use debug level for "Connection is closed" (expected during shutdown)
+            if "Connection is closed" in str(e):
+                logger.debug(f"Cast to {self.address} failed, invalidating connection: {e}")
+            else:
+                logger.warning(f"Cast to {self.address} failed, invalidating connection: {e}")
             async with self.lock:
                 self.connection = None
             raise

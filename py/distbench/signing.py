@@ -157,9 +157,7 @@ class Signed(Generic[M]):
         try:
             verify_key = VerifyKey(key_bytes)
         except Exception as e:
-            logger.warning(
-                f"Invalid public key for {self.signer}: {e}"
-            )
+            logger.warning(f"Invalid public key for {self.signer}: {e}")
             return False
 
         # Verify the signature
@@ -169,9 +167,7 @@ class Signed(Generic[M]):
             # Verify signature
             verify_key.verify(digest, self.signature, encoder=RawEncoder)
         except Exception as e:
-            logger.warning(
-                f"Signature verification failed for message from {self.signer}: {e}"
-            )
+            logger.warning(f"Signature verification failed for message from {self.signer}: {e}")
             return False
 
         # Recursively verify the inner value

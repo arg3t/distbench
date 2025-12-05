@@ -62,7 +62,7 @@ class SimpleBroadcast(Algorithm):
 
         # Deliver to parent layer
         try:
-            await self.deliver_message(self.id(), msg)
+            await self.deliver_message(self.id, msg)
         except Exception as e:
             logger.info(f"SimpleBroadcast: Failed to deliver to parent: {e}")
 
@@ -147,7 +147,7 @@ class SimpleBroadcastUpper(Algorithm):
             # Also broadcast a BroadcastEcho message
             echo_msg = BroadcastEcho(
                 content=b"Echo from upper layer",
-                original_sender=str(self.id()),
+                original_sender=str(self.id),
             )
 
             try:

@@ -9,7 +9,7 @@ that runs each node as a separate container in network mode.
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -23,7 +23,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
     Returns:
         Dictionary containing the configuration
     """
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
 
     # Filter out template keys (starting with _)
@@ -39,7 +39,7 @@ def generate_compose_config(
     verbosity: int = 0,
     latency: str = "0-0",
     startup_delay: int = 0,
-    report_dir: Optional[str] = None,
+    report_dir: str | None = None,
     port: int = 8000,
 ) -> dict[str, Any]:
     """Generate docker-compose configuration for Python nodes.
@@ -79,7 +79,7 @@ def generate_compose_config(
     config_abs_path = config_path.resolve()
 
     # Create a service for each node
-    for node_id in config.keys():
+    for node_id in config:
         cmd = [
             "--config",
             "/config/config.yaml",
